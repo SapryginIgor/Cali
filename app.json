@@ -5,7 +5,7 @@
       "version": "1.0.0",
       "orientation": "portrait",
       "icon": "./assets/images/icon.png",
-      "scheme": "rork-app",
+      "scheme": "cali",
       "userInterfaceStyle": "automatic",
       "newArchEnabled": true,
       "splash": {
@@ -15,7 +15,7 @@
       },
       "ios": {
         "supportsTablet": false,
-        "bundleIdentifier": "app.rork.mealtrackai",
+        "bundleIdentifier": "app.cali.mealtrackai",
         "infoPlist": {
           "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photos",
           "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera",
@@ -27,7 +27,7 @@
           "foregroundImage": "./assets/images/adaptive-icon.png",
           "backgroundColor": "#ffffff"
         },
-        "package": "app.rork.mealtrackai",
+        "package": "app.cali.mealtrackai",
         "permissions": [
           "CAMERA",
           "READ_EXTERNAL_STORAGE",
@@ -41,7 +41,7 @@
         [
           "expo-router",
           {
-            "origin": "https://rork.com/"
+            "origin": "https://localhost:8081"
           }
         ],
         "expo-font",

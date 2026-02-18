@@ -1,0 +1,217 @@
+/**
+ * AI helpers for food analysis.
+ * Uses backend API for OpenAI GPT-4 Vision integration, with fallback to mock.
+ */
+
+export interface NutritionResult {
+  carbs: number;
+  protein: number;
+  fats: number;
+  calories: number;
+  analysis: string;
+}
+
+// Backend API configuration
+// Set EXPO_PUBLIC_BACKEND_URL environment variable to enable backend API
+// For development: http://localhost:3000
+// For production: your deployed backend URL
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || "";
+
+/**
+ * Convert image URI to base64 string
+ * @param imageUri - Local file URI (e.g., from expo-image-picker)
+ * @returns Base64 encoded image string
+ */
+async function imageUriToBase64(imageUri: string): Promise<string> {
+  console.log("[Cali API] Converting image to base64...", imageUri?.slice(0, 50));
+  try {
+    const response = await fetch(imageUri);
+    const blob = await response.blob();
+    console.log("[Cali API] Image fetched, blob size:", blob.size);
+
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        const base64 = base64String.includes(",")
+          ? base64String.split(",")[1]
+          : base64String;
+        console.log("[Cali API] Base64 conversion done, length:", base64?.length);
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.error("[Cali API] Error converting image to base64:", error);
+    throw new Error("Failed to process image");
+  }
+}
+
+/** Request timeout in ms (backend + OpenAI can take 30–60s for vision). */
+const BACKEND_REQUEST_TIMEOUT_MS = 90_000;
+
+/**
+ * Call backend API to analyze food image
+ * @param imageBase64 - Base64 encoded image
+ * @param description - Optional text description
+ * @returns NutritionResult from backend API
+ */
+async function callBackendAPI(
+  imageBase64: string,
+  description?: string
+): Promise<NutritionResult> {
+  if (!BACKEND_URL) {
+    throw new Error("Backend URL not configured");
+  }
+
+  const url = `${BACKEND_URL}/api/analyze-food`;
+  console.log("[Cali API] Sending request to backend:", url, "description:", description ? "yes" : "no");
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), BACKEND_REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        image: imageBase64,
+        description: description,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    console.log("[Cali API] Backend response status:", response.status, response.statusText);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log("[Cali API] Backend response OK, data keys:", Object.keys(data));
+
+    // Validate response structure
+    if (
+      typeof data.carbs === "number" &&
+      typeof data.protein === "number" &&
+      typeof data.fats === "number" &&
+      typeof data.calories === "number" &&
+      typeof data.analysis === "string"
+    ) {
+      return data as NutritionResult;
+    } else {
+      throw new Error("Invalid response format from backend");
+    }
+  } catch (error) {
+    clearTimeout(timeoutId);
+    console.error("[Cali API] Backend request failed:", error);
+    if (error instanceof Error) {
+      if (error.name === "AbortError") {
+        throw new Error("Request timed out. Check that the backend is running and reachable.");
+      }
+      throw error;
+    }
+    throw new Error("Failed to call backend API");
+  }
+}
+
+/** Mock: derive rough nutrition from description or return defaults. */
+function estimateNutrition(description: string): NutritionResult {
+  const d = (description || "meal").toLowerCase();
+  // Very rough heuristic estimates for common terms
+  let calories = 400;
+  let protein = 20;
+  let carbs = 45;
+  let fats = 15;
+  if (d.includes("salad") || d.includes("vegetable")) {
+    calories = 120;
+    protein = 6;
+    carbs = 15;
+    fats = 4;
+  } else if (d.includes("chicken") || d.includes("grilled")) {
+    calories = 350;
+    protein = 35;
+    carbs = 5;
+    fats = 18;
+  } else if (d.includes("pasta") || d.includes("rice") || d.includes("bread")) {
+    calories = 450;
+    protein = 12;
+    carbs = 70;
+    fats = 10;
+  } else if (d.includes("burger") || d.includes("pizza") || d.includes("fried")) {
+    calories = 600;
+    protein = 25;
+    carbs = 50;
+    fats = 35;
+  }
+  return {
+    carbs,
+    protein,
+    fats,
+    calories,
+    analysis: `Estimated nutrition for "${description || "your meal"}. Add your own AI provider in lib/ai.ts for accurate analysis."`,
+  };
+}
+
+/** Compatible with previous generateObject usage (messages + schema). Returns nutrition data from backend API or mock fallback. */
+export async function generateObject<T>(options: {
+  messages: Array<{ role: string; content: unknown } | { role: string; content: unknown[] }>;
+  schema: unknown;
+}): Promise<T> {
+  const first = options.messages[0];
+  if (!first || typeof first !== "object" || !("content" in first)) {
+    console.log("[Cali API] Using mock (no message content)");
+    return estimateNutrition("meal") as T;
+  }
+
+  const content = first.content;
+  let description: string | undefined;
+  let imageUri: string | undefined;
+
+  // Extract description and image URI from messages
+  if (typeof content === "string") {
+    const match = content.match(/provide nutritional information:\s*(.+)/i);
+    description = match ? match[1].trim() : undefined;
+  } else if (Array.isArray(content)) {
+    // Find text part for description
+    const textPart = content.find((c: { type?: string; text?: string }) => c.type === "text" && c.text);
+    if (textPart && typeof (textPart as { text?: string }).text === "string") {
+      const t = (textPart as { text: string }).text;
+      const ctx = t.match(/Additional context:\s*(.+)/i);
+      description = ctx ? ctx[1].trim() : undefined;
+    }
+
+    // Find image part
+    const imagePart = content.find((c: { type?: string; image?: string }) => c.type === "image" && c.image);
+    if (imagePart && typeof (imagePart as { image?: string }).image === "string") {
+      imageUri = (imagePart as { image: string }).image;
+    }
+  }
+
+  // If backend URL is configured and we have an image, use backend API
+  if (BACKEND_URL && imageUri) {
+    console.log("[Cali API] Using backend:", BACKEND_URL, "| imageUri:", !!imageUri);
+    try {
+      const imageBase64 = await imageUriToBase64(imageUri);
+      const result = await callBackendAPI(imageBase64, description);
+      console.log("[Cali API] Backend success, calories:", result.calories);
+      return result as T;
+    } catch (error) {
+      console.error("[Cali API] Backend failed, falling back to mock:", error);
+      return estimateNutrition(description || "meal") as T;
+    }
+  }
+
+  console.log("[Cali API] Using mock (no BACKEND_URL or no image). BACKEND_URL:", BACKEND_URL || "(empty)", "| imageUri:", !!imageUri);
+  return estimateNutrition(description || "meal") as T;
+}
+
+/** Mock: return static tips. Replace with your AI provider for real tips. */
+export async function generateText(_prompt: string): Promise<string> {
+  return "Keep up the great work tracking your nutrition! Stay consistent with your goals and adjust portions based on your progress.";
+}

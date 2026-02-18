@@ -1,6 +1,6 @@
-import { generateObject } from "@rork-ai/toolkit-sdk";
+import { generateObject } from "@/lib/ai";
 import * as ImagePicker from "expo-image-picker";
-import { Camera, ImagePlus, Plus } from "lucide-react-native";
+import { Camera, ImagePlus, Plus, Sparkles } from "lucide-react-native";
 import { useState } from "react";
 import {
   View,
@@ -12,7 +12,6 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
-  Animated,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -72,7 +71,7 @@ export default function TodayScreen() {
 
       console.log("Sending request to AI with messages:", JSON.stringify(messages, null, 2));
 
-      const result = await generateObject({
+      const result = await generateObject<z.infer<typeof nutritionSchema>>({
         messages,
         schema: nutritionSchema,
       });
@@ -173,199 +172,205 @@ export default function TodayScreen() {
     });
   };
 
-  const getProgressPercentage = (current: number, goal: number) => {
-    return Math.min((current / goal) * 100, 100);
-  };
 
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={["#F8FAFC", "#EEF2FF"]}
+        colors={["#FFFFFF", "#FFF7ED", "#FFEDD5"]}
         style={StyleSheet.absoluteFill}
       />
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Today</Text>
-        <Text style={styles.headerDate}>
-          {new Date().toLocaleDateString("en-US", {
-            weekday: "long",
-            month: "short",
-            day: "numeric",
-          })}
-        </Text>
-      </View>
-
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {profile && (
-          <View style={styles.macrosCard}>
-            <LinearGradient
-              colors={["#FFFFFF", "#FEFEFE"]}
-              style={styles.macrosCardGradient}
-            >
-            <Text style={styles.macrosTitle}>Daily Progress</Text>
-            <View style={styles.macrosGrid}>
-              <View style={styles.macroItem}>
-                <View style={styles.macroHeader}>
-                  <Text style={styles.macroLabel}>Calories</Text>
-                  <Text style={styles.macroValue}>
-                    {Math.round(totals.calories)}/{profile.dailyGoals.calories}
-                  </Text>
-                </View>
-                <View style={styles.progressBar}>
-                  <LinearGradient
-                    colors={["#8B5CF6", Colors.light.tint]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[
-                      styles.progressFill,
-                      {
-                        width: `${getProgressPercentage(totals.calories, profile.dailyGoals.calories)}%`,
-                      },
-                    ]}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.macroItem}>
-                <View style={styles.macroHeader}>
-                  <Text style={styles.macroLabel}>Protein</Text>
-                  <Text style={styles.macroValue}>
-                    {Math.round(totals.protein)}g/{profile.dailyGoals.protein}g
-                  </Text>
-                </View>
-                <View style={styles.progressBar}>
-                  <LinearGradient
-                    colors={["#60A5FA", "#3B82F6"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[
-                      styles.progressFill,
-                      {
-                        width: `${getProgressPercentage(totals.protein, profile.dailyGoals.protein)}%`,
-                      },
-                    ]}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.macroItem}>
-                <View style={styles.macroHeader}>
-                  <Text style={styles.macroLabel}>Carbs</Text>
-                  <Text style={styles.macroValue}>
-                    {Math.round(totals.carbs)}g/{profile.dailyGoals.carbs}g
-                  </Text>
-                </View>
-                <View style={styles.progressBar}>
-                  <LinearGradient
-                    colors={["#FBBF24", "#F59E0B"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[
-                      styles.progressFill,
-                      {
-                        width: `${getProgressPercentage(totals.carbs, profile.dailyGoals.carbs)}%`,
-                      },
-                    ]}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.macroItem}>
-                <View style={styles.macroHeader}>
-                  <Text style={styles.macroLabel}>Fats</Text>
-                  <Text style={styles.macroValue}>
-                    {Math.round(totals.fats)}g/{profile.dailyGoals.fats}g
-                  </Text>
-                </View>
-                <View style={styles.progressBar}>
-                  <LinearGradient
-                    colors={["#F87171", "#EF4444"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[
-                      styles.progressFill,
-                      {
-                        width: `${getProgressPercentage(totals.fats, profile.dailyGoals.fats)}%`,
-                      },
-                    ]}
-                  />
-                </View>
-              </View>
-            </View>
-            </LinearGradient>
-          </View>
-        )}
-
-        <View style={styles.timelineHeader}>
-          <Text style={styles.timelineTitle}>Meals</Text>
-          <Text style={styles.timelineCount}>{todayEntries.length}</Text>
-        </View>
-
-        {todayEntries.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>🍽️</Text>
-            <Text style={styles.emptyTitle}>No meals logged yet</Text>
-            <Text style={styles.emptySubtitle}>
-              Start tracking by adding your first meal
+        {/* Modern Header */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerTitle}>Today</Text>
+            <Text style={styles.headerDate}>
+              {new Date().toLocaleDateString("en-US", {
+                weekday: "long",
+                month: "short",
+                day: "numeric",
+              })}
             </Text>
           </View>
-        ) : (
-          <View style={styles.timeline}>
-            {todayEntries.map((entry) => (
-              <View key={entry.id} style={styles.entryCard}>
-                {entry.imageUri && (
-                  <Image source={{ uri: entry.imageUri }} style={styles.entryImage} />
-                )}
-                <View style={styles.entryContent}>
-                  <View style={styles.entryHeader}>
-                    <Text style={styles.entryTime}>{formatTime(entry.timestamp)}</Text>
+          <View style={styles.headerBadge}>
+            <Sparkles size={16} color={Colors.light.accent1} />
+            <Text style={styles.headerBadgeText}>AI Powered</Text>
+          </View>
+        </View>
+
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          {profile && (
+            <View style={styles.macrosCard}>
+            <LinearGradient
+              colors={["#FFFFFF", "#FFFBF7"]}
+              style={styles.macrosCardGradient}
+            >
+                <View style={styles.macrosHeader}>
+                  <Text style={styles.macrosTitle}>Today's Intake</Text>
+                  <Text style={styles.macrosSubtitle}>
+                    {todayEntries.length} {todayEntries.length === 1 ? 'meal' : 'meals'} logged
+                  </Text>
+                </View>
+
+                <View style={styles.macrosGrid}>
+                  {/* Calories - Large Card */}
+                  <View style={styles.macroCardLarge}>
+                    <LinearGradient
+                      colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.macroCardLargeGradient}
+                    >
+                      <Text style={styles.macroCardLargeLabel}>Calories</Text>
+                      <Text style={styles.macroCardLargeValue}>
+                        {Math.round(totals.calories)}
+                      </Text>
+                      <Text style={styles.macroCardLargeGoal}>
+                        cal
+                      </Text>
+                    </LinearGradient>
                   </View>
-                  <Text style={styles.entryDescription}>{entry.description}</Text>
-                  {entry.aiAnalysis && (
-                    <Text style={styles.entryAnalysis}>{entry.aiAnalysis}</Text>
-                  )}
-                  <View style={styles.entryNutrition}>
-                    <View style={styles.nutritionBadge}>
-                      <Text style={styles.nutritionText}>
-                        {Math.round(entry.nutrition.calories)} cal
+
+                  {/* Macros Grid */}
+                  <View style={styles.macrosRow}>
+                    <View style={styles.macroCard}>
+                      <View style={styles.macroCardHeader}>
+                        <View style={[styles.macroDot, { backgroundColor: Colors.light.macroProtein }]} />
+                        <Text style={styles.macroCardLabel}>Protein</Text>
+                      </View>
+                      <Text style={styles.macroCardValue}>
+                        {Math.round(totals.protein)}g
                       </Text>
                     </View>
-                    <View style={styles.nutritionBadge}>
-                      <Text style={styles.nutritionText}>P: {Math.round(entry.nutrition.protein)}g</Text>
-                    </View>
-                    <View style={styles.nutritionBadge}>
-                      <Text style={styles.nutritionText}>C: {Math.round(entry.nutrition.carbs)}g</Text>
-                    </View>
-                    <View style={styles.nutritionBadge}>
-                      <Text style={styles.nutritionText}>F: {Math.round(entry.nutrition.fats)}g</Text>
+
+                    <View style={styles.macroCard}>
+                      <View style={styles.macroCardHeader}>
+                        <View style={[styles.macroDot, { backgroundColor: Colors.light.macroCarbs }]} />
+                        <Text style={styles.macroCardLabel}>Carbs</Text>
+                      </View>
+                      <Text style={styles.macroCardValue}>
+                        {Math.round(totals.carbs)}g
+                      </Text>
                     </View>
                   </View>
+
+                  <View style={styles.macroCard}>
+                    <View style={styles.macroCardHeader}>
+                      <View style={[styles.macroDot, { backgroundColor: Colors.light.macroFats }]} />
+                      <Text style={styles.macroCardLabel}>Fats</Text>
+                    </View>
+                    <Text style={styles.macroCardValue}>
+                      {Math.round(totals.fats)}g
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            ))}
+              </LinearGradient>
+            </View>
+          )}
+
+          <View style={styles.timelineHeader}>
+            <Text style={styles.timelineTitle}>Meals</Text>
+            <View style={styles.timelineBadge}>
+              <Text style={styles.timelineCount}>{todayEntries.length}</Text>
+            </View>
           </View>
-        )}
-      </ScrollView>
+
+          {todayEntries.length === 0 ? (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconContainer}>
+                <Text style={styles.emptyIcon}>🍽️</Text>
+              </View>
+              <Text style={styles.emptyTitle}>No meals logged yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Start tracking by adding your first meal with AI-powered analysis
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.timeline}>
+              {todayEntries.map((entry) => (
+                <View key={entry.id} style={styles.entryCard}>
+                  <LinearGradient
+                    colors={["#FFFFFF", "#FAFBFF"]}
+                    style={styles.entryCardGradient}
+                  >
+                    <View style={styles.entryContent}>
+                      <View style={styles.entryHeader}>
+                        <View style={styles.entryHeaderLeft}>
+                          <View style={styles.entryTimeBadge}>
+                            <Text style={styles.entryTime}>{formatTime(entry.timestamp)}</Text>
+                          </View>
+                        </View>
+                        <View style={styles.entryCaloriesBadge}>
+                          <Text style={styles.entryCalories}>
+                            {Math.round(entry.nutrition.calories)} cal
+                          </Text>
+                        </View>
+                      </View>
+
+                      {entry.imageUri && (
+                        <View style={styles.entryImageContainer}>
+                          <Image
+                            source={{ uri: entry.imageUri }}
+                            style={styles.entryImage}
+                            resizeMode="cover"
+                          />
+                        </View>
+                      )}
+
+                      <Text style={styles.entryDescription}>{entry.description}</Text>
+                      
+                      {entry.aiAnalysis && (
+                        <View style={styles.entryAnalysisContainer}>
+                          <Sparkles size={14} color={Colors.light.accent1} />
+                          <Text style={styles.entryAnalysis}>{entry.aiAnalysis}</Text>
+                        </View>
+                      )}
+
+                      <View style={styles.entryNutrition}>
+                        <View style={[styles.nutritionBadge, { backgroundColor: `${Colors.light.macroProtein}15` }]}>
+                          <Text style={[styles.nutritionText, { color: Colors.light.macroProtein }]}>
+                            P: {Math.round(entry.nutrition.protein)}g
+                          </Text>
+                        </View>
+                        <View style={[styles.nutritionBadge, { backgroundColor: `${Colors.light.macroCarbs}15` }]}>
+                          <Text style={[styles.nutritionText, { color: Colors.light.macroCarbs }]}>
+                            C: {Math.round(entry.nutrition.carbs)}g
+                          </Text>
+                        </View>
+                        <View style={[styles.nutritionBadge, { backgroundColor: `${Colors.light.macroFats}15` }]}>
+                          <Text style={[styles.nutritionText, { color: Colors.light.macroFats }]}>
+                            F: {Math.round(entry.nutrition.fats)}g
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  </LinearGradient>
+                </View>
+              ))}
+            </View>
+          )}
+        </ScrollView>
       </SafeAreaView>
 
-      <View style={styles.logButtonContainer}>
+      {/* Circular Floating Action Button */}
+      <View style={styles.fabContainer}>
         <TouchableOpacity
-          style={styles.logButton}
+          style={styles.fab}
           onPress={handleCamera}
           activeOpacity={0.9}
         >
           <LinearGradient
-            colors={["#FFFFFF", "#F8FAFC"]}
-            style={styles.logButtonGradient}
+            colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.fabGradient}
           >
-            <View style={styles.logButtonInner}>
-              <Plus color={Colors.light.accent1} size={56} strokeWidth={2.5} />
-              <Text style={styles.logButtonText}>Log Meal</Text>
-            </View>
+            <Plus color="#FFFFFF" size={40} strokeWidth={3} />
           </LinearGradient>
         </TouchableOpacity>
       </View>
 
+      {/* Enhanced Modal */}
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -377,6 +382,10 @@ export default function TodayScreen() {
         }}
       >
         <SafeAreaView style={styles.modalContainer}>
+          <LinearGradient
+            colors={["#FFFFFF", "#F8FAFF"]}
+            style={StyleSheet.absoluteFill}
+          />
           <View style={styles.modalHeader}>
             <TouchableOpacity
               onPress={() => {
@@ -400,7 +409,7 @@ export default function TodayScreen() {
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.modalContent}>
+          <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
             {selectedImage && (
               <View style={styles.imagePreviewContainer}>
                 <Image source={{ uri: selectedImage }} style={styles.imagePreview} />
@@ -414,9 +423,10 @@ export default function TodayScreen() {
             )}
 
             <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Add details (optional)</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Add details about your meal (optional)"
+                placeholder="Describe your meal..."
                 placeholderTextColor={Colors.light.secondaryText}
                 value={inputText}
                 onChangeText={setInputText}
@@ -432,8 +442,13 @@ export default function TodayScreen() {
                 onPress={handleCamera}
                 disabled={isAnalyzing}
               >
-                <Camera color={Colors.light.tint} size={24} />
-                <Text style={styles.photoButtonText}>Retake Photo</Text>
+                <LinearGradient
+                  colors={[Colors.light.lightBlue, "#FFFFFF"]}
+                  style={styles.photoButtonGradient}
+                >
+                  <Camera color={Colors.light.tint} size={24} />
+                  <Text style={styles.photoButtonText}>Retake Photo</Text>
+                </LinearGradient>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -441,15 +456,21 @@ export default function TodayScreen() {
                 onPress={handleGallery}
                 disabled={isAnalyzing}
               >
-                <ImagePlus color={Colors.light.tint} size={24} />
-                <Text style={styles.photoButtonText}>Choose from Gallery</Text>
+                <LinearGradient
+                  colors={[Colors.light.lightBlue, "#FFFFFF"]}
+                  style={styles.photoButtonGradient}
+                >
+                  <ImagePlus color={Colors.light.tint} size={24} />
+                  <Text style={styles.photoButtonText}>Choose from Gallery</Text>
+                </LinearGradient>
               </TouchableOpacity>
             </View>
 
             {isAnalyzing && (
               <View style={styles.analyzingContainer}>
                 <ActivityIndicator size="large" color={Colors.light.tint} />
-                <Text style={styles.analyzingText}>Analyzing nutrition...</Text>
+                <Text style={styles.analyzingText}>AI is analyzing your meal...</Text>
+                <Text style={styles.analyzingSubtext}>This may take up to a minute</Text>
               </View>
             )}
           </ScrollView>
@@ -467,243 +488,370 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
     paddingHorizontal: 24,
-    paddingTop: 12,
-    paddingBottom: 20,
-    backgroundColor: Colors.light.background,
+    paddingTop: 16,
+    paddingBottom: 24,
   },
   headerTitle: {
-    fontSize: 34,
-    fontWeight: "700" as const,
+    fontSize: 36,
+    fontWeight: "800" as const,
     color: Colors.light.text,
     marginBottom: 4,
-    letterSpacing: -0.5,
+    letterSpacing: -1,
   },
   headerDate: {
     fontSize: 16,
     color: Colors.light.secondaryText,
     fontWeight: "500" as const,
   },
+  headerBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: Colors.light.lightBlue,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: `${Colors.light.accent1}20`,
+  },
+  headerBadgeText: {
+    fontSize: 12,
+    fontWeight: "600" as const,
+    color: Colors.light.accent1,
+  },
   content: {
     flex: 1,
   },
   macrosCard: {
-    margin: 20,
-    borderRadius: 24,
-    shadowColor: "#6366F1",
+    marginHorizontal: 20,
+    marginBottom: 24,
+    borderRadius: 28,
+    shadowColor: Colors.light.cardShadow,
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.2,
     shadowRadius: 24,
-    elevation: 8,
+    elevation: 12,
     borderWidth: 1,
     borderColor: "rgba(99, 102, 241, 0.08)",
+    overflow: "hidden",
   },
   macrosCardGradient: {
     padding: 24,
-    borderRadius: 24,
+  },
+  macrosHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 24,
   },
   macrosTitle: {
-    fontSize: 20,
-    fontWeight: "700" as const,
+    fontSize: 22,
+    fontWeight: "800" as const,
     color: Colors.light.text,
-    marginBottom: 20,
-    letterSpacing: -0.3,
+    letterSpacing: -0.5,
+  },
+  macrosSubtitle: {
+    fontSize: 16,
+    fontWeight: "600" as const,
+    color: Colors.light.secondaryText,
   },
   macrosGrid: {
     gap: 16,
   },
-  macroItem: {
-    gap: 8,
+  macroCardLarge: {
+    borderRadius: 24,
+    overflow: "hidden",
+    shadowColor: Colors.light.gradientStart,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
   },
-  macroHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+  macroCardLargeGradient: {
+    padding: 24,
   },
-  macroLabel: {
-    fontSize: 14,
-    color: Colors.light.secondaryText,
-  },
-  macroValue: {
+  macroCardLargeLabel: {
     fontSize: 14,
     fontWeight: "600" as const,
-    color: Colors.light.text,
+    color: "rgba(255, 255, 255, 0.9)",
+    marginBottom: 8,
+    textTransform: "uppercase" as const,
+    letterSpacing: 0.5,
   },
-  progressBar: {
-    height: 10,
-    backgroundColor: "#F1F5F9",
-    borderRadius: 6,
+  macroCardLargeValue: {
+    fontSize: 42,
+    fontWeight: "800" as const,
+    color: "#FFFFFF",
+    letterSpacing: -1,
+  },
+  macroCardLargeGoal: {
+    fontSize: 16,
+    fontWeight: "500" as const,
+    color: "rgba(255, 255, 255, 0.8)",
+    marginBottom: 16,
+  },
+  macroCardLargeProgress: {
+    marginTop: 8,
+  },
+  macroCardLargeProgressBar: {
+    height: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    borderRadius: 4,
     overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
   },
-  progressFill: {
+  macroCardLargeProgressFill: {
     height: "100%",
-    borderRadius: 6,
+    borderRadius: 4,
+  },
+  macrosRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  macroCard: {
+    flex: 1,
+    backgroundColor: Colors.light.cardBackground,
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  macroCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  macroDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  macroCardLabel: {
+    fontSize: 13,
+    fontWeight: "600" as const,
+    color: Colors.light.secondaryText,
+    textTransform: "uppercase" as const,
+    letterSpacing: 0.5,
+  },
+  macroCardValue: {
+    fontSize: 24,
+    fontWeight: "800" as const,
+    color: Colors.light.text,
+    letterSpacing: -0.5,
+    marginBottom: 4,
+  },
+  macroCardGoal: {
+    fontSize: 13,
+    fontWeight: "500" as const,
+    color: Colors.light.secondaryText,
+    marginBottom: 12,
+  },
+  macroCardProgress: {
+    marginTop: 4,
+  },
+  macroCardProgressBar: {
+    height: 6,
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  macroCardProgressFill: {
+    height: "100%",
+    borderRadius: 3,
   },
   timelineHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
-    marginBottom: 16,
+    marginBottom: 20,
   },
   timelineTitle: {
-    fontSize: 22,
-    fontWeight: "700" as const,
+    fontSize: 24,
+    fontWeight: "800" as const,
     color: Colors.light.text,
-    letterSpacing: -0.3,
+    letterSpacing: -0.5,
+  },
+  timelineBadge: {
+    backgroundColor: Colors.light.lightBlue,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: `${Colors.light.accent1}20`,
   },
   timelineCount: {
-    fontSize: 16,
-    fontWeight: "600" as const,
-    color: Colors.light.tertiaryText,
-    backgroundColor: Colors.light.lightBlue,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
+    fontSize: 15,
+    fontWeight: "700" as const,
+    color: Colors.light.accent1,
   },
   emptyState: {
     alignItems: "center",
-    paddingVertical: 60,
+    paddingVertical: 80,
     paddingHorizontal: 40,
   },
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: Colors.light.lightBlue,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 24,
+  },
   emptyIcon: {
-    fontSize: 64,
-    marginBottom: 16,
+    fontSize: 48,
   },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: "600" as const,
+    fontSize: 22,
+    fontWeight: "700" as const,
     color: Colors.light.text,
     marginBottom: 8,
+    letterSpacing: -0.3,
   },
   emptySubtitle: {
-    fontSize: 14,
+    fontSize: 15,
     color: Colors.light.secondaryText,
     textAlign: "center",
+    lineHeight: 22,
   },
   timeline: {
     paddingHorizontal: 20,
-    paddingBottom: 100,
+    paddingBottom: 120,
     gap: 16,
   },
   entryCard: {
-    backgroundColor: Colors.light.cardBackground,
-    borderRadius: 20,
+    borderRadius: 24,
     overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 16,
     elevation: 4,
     borderWidth: 1,
-    borderColor: "rgba(0, 0, 0, 0.04)",
+    borderColor: Colors.light.border,
   },
-  entryImage: {
-    width: "100%",
-    height: 200,
-    backgroundColor: "#F1F5F9",
+  entryCardGradient: {
+    padding: 20,
   },
   entryContent: {
-    padding: 18,
+    gap: 12,
   },
   entryHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
+  },
+  entryHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  entryTimeBadge: {
+    backgroundColor: Colors.light.lightBlue,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   entryTime: {
+    fontSize: 12,
+    fontWeight: "600" as const,
+    color: Colors.light.accent1,
+  },
+  entryCaloriesBadge: {
+    backgroundColor: Colors.light.gradientStart,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  entryCalories: {
     fontSize: 13,
-    color: Colors.light.secondaryText,
-    fontWeight: "500" as const,
+    fontWeight: "700" as const,
+    color: "#FFFFFF",
+  },
+  entryImageContainer: {
+    borderRadius: 16,
+    overflow: "hidden",
+    marginVertical: 4,
+  },
+  entryImage: {
+    width: "100%",
+    height: 200,
+    backgroundColor: Colors.light.border,
   },
   entryDescription: {
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: "700" as const,
     color: Colors.light.text,
-    marginBottom: 6,
-    letterSpacing: -0.2,
+    letterSpacing: -0.3,
+  },
+  entryAnalysisContainer: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: Colors.light.lightBlue,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: `${Colors.light.accent1}15`,
   },
   entryAnalysis: {
+    flex: 1,
     fontSize: 14,
-    color: Colors.light.secondaryText,
-    lineHeight: 21,
-    marginBottom: 14,
+    color: Colors.light.text,
+    lineHeight: 20,
   },
   entryNutrition: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
+    marginTop: 4,
   },
   nutritionBadge: {
-    backgroundColor: Colors.light.lightBlue,
     paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 10,
-    shadowColor: Colors.light.accent1,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-    borderWidth: 1,
-    borderColor: "rgba(99, 102, 241, 0.1)",
+    paddingVertical: 6,
+    borderRadius: 12,
   },
   nutritionText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600" as const,
-    color: Colors.light.accent1,
   },
-  logButtonContainer: {
+  fabContainer: {
     position: "absolute",
-    bottom: 0,
+    bottom: 16,
     left: 0,
     right: 0,
-    height: "50%",
-    justifyContent: "flex-end",
-    alignItems: "center",
-    paddingBottom: 32,
-    paddingHorizontal: 24,
-    pointerEvents: "box-none",
-  },
-  logButton: {
-    width: "100%",
-    height: 180,
-    borderRadius: 32,
-    shadowColor: Colors.light.accent1,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.3,
-    shadowRadius: 32,
-    elevation: 16,
-  },
-  logButtonGradient: {
-    flex: 1,
-    borderRadius: 32,
-    borderWidth: 3,
-    borderColor: Colors.light.accent1,
-  },
-  logButtonInner: {
-    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 12,
+    pointerEvents: "box-none",
   },
-  logButtonText: {
-    fontSize: 20,
-    fontWeight: "700" as const,
-    color: Colors.light.accent1,
-    letterSpacing: -0.3,
+  fab: {
+    width: 90,
+    height: 90,
+    borderRadius: 36,
+    overflow: "hidden",
+    shadowColor: Colors.light.gradientStart,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+  fabGradient: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: Colors.light.background,
   },
   modalHeader: {
     flexDirection: "row",
@@ -717,15 +865,16 @@ const styles = StyleSheet.create({
   modalCancel: {
     fontSize: 16,
     color: Colors.light.secondaryText,
+    fontWeight: "500" as const,
   },
   modalTitle: {
-    fontSize: 17,
-    fontWeight: "600" as const,
+    fontSize: 18,
+    fontWeight: "700" as const,
     color: Colors.light.text,
   },
   modalDone: {
     fontSize: 16,
-    fontWeight: "600" as const,
+    fontWeight: "700" as const,
     color: Colors.light.tint,
   },
   modalDoneDisabled: {
@@ -737,69 +886,78 @@ const styles = StyleSheet.create({
   },
   imagePreviewContainer: {
     position: "relative",
-    marginBottom: 20,
-    borderRadius: 12,
+    marginBottom: 24,
+    borderRadius: 20,
     overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
   },
   imagePreview: {
     width: "100%",
-    height: 240,
-    backgroundColor: "#E5E7EB",
+    height: 280,
+    backgroundColor: Colors.light.border,
   },
   removeImageButton: {
     position: "absolute",
-    top: 12,
-    right: 12,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    top: 16,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
     alignItems: "center",
     justifyContent: "center",
   },
   removeImageText: {
     color: "#FFFFFF",
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "600" as const,
   },
   inputContainer: {
     marginBottom: 24,
   },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: "600" as const,
+    color: Colors.light.text,
+    marginBottom: 8,
+  },
   input: {
-    backgroundColor: Colors.light.lightBlue,
-    borderRadius: 14,
+    backgroundColor: Colors.light.cardBackground,
+    borderRadius: 16,
     padding: 18,
     fontSize: 16,
     color: Colors.light.text,
     minHeight: 120,
     textAlignVertical: "top",
     borderWidth: 1,
-    borderColor: "transparent",
+    borderColor: Colors.light.border,
   },
   photoButtons: {
     flexDirection: "row",
     gap: 12,
+    marginBottom: 24,
   },
   photoButton: {
     flex: 1,
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+  },
+  photoButtonGradient: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: Colors.light.cardBackground,
-    borderRadius: 14,
-    paddingVertical: 18,
-    borderWidth: 2,
-    borderColor: Colors.light.border,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    paddingVertical: 16,
   },
   photoButtonText: {
-    fontSize: 15,
-    fontWeight: "500" as const,
+    fontSize: 14,
+    fontWeight: "600" as const,
     color: Colors.light.text,
   },
   analyzingContainer: {
@@ -809,6 +967,11 @@ const styles = StyleSheet.create({
   },
   analyzingText: {
     fontSize: 16,
+    fontWeight: "600" as const,
+    color: Colors.light.text,
+  },
+  analyzingSubtext: {
+    fontSize: 14,
     color: Colors.light.secondaryText,
   },
 });
