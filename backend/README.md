@@ -1,198 +1,237 @@
-# Cali Backend API
+# Food Analysis API - FastAPI Backend
 
-Backend API for food analysis using OpenAI GPT-4 Vision. This service acts as a secure proxy between the mobile app and OpenAI's API, protecting API keys and providing rate limiting.
-
-## Features
-
-- **Food Image Analysis**: Analyze food images using GPT-4 Vision API
-- **Secure API Key Management**: API keys stored server-side only
-- **Rate Limiting**: 20 requests per 15 minutes per IP
-- **Input Validation**: Validates image size, format, and description length
-- **Error Handling**: User-friendly error messages without exposing internal details
-- **CORS Support**: Configured for mobile app origins
+Python/FastAPI backend for analyzing food images and extracting nutritional information using OpenAI GPT-4 Vision.
 
 ## Setup
 
 ### Prerequisites
 
-- Node.js 18+ 
-- npm or yarn
-- OpenAI API key
+- Python 3.11+
+- pip (Python package manager)
 
 ### Installation
 
-1. Install dependencies:
+1. Create a virtual environment (recommended):
 ```bash
-cd backend
-npm install
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-2. Create `.env` file from `.env.example`:
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+3. Create `.env` file from `.env.example`:
 ```bash
 cp .env.example .env
 ```
 
-3. Configure environment variables in `.env`:
-```env
-PORT=3000
+4. Edit `.env` and add your OpenAI API key:
+```
 OPENAI_API_KEY=sk-your-openai-api-key-here
-NODE_ENV=development
-RATE_LIMIT_WINDOW_MS=900000
-RATE_LIMIT_MAX_REQUESTS=20
+PORT=8000
 ```
 
-### Development
+## Running Locally
 
-Run the development server:
+### Development Server
+
 ```bash
-npm run dev
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-The server will start on `http://localhost:3000` (or the port specified in `.env`).
+The API will be available at `http://localhost:8000`
 
-### Build
+### Docker
 
-Build for production:
+From the project root:
+
 ```bash
-npm run build
+# Создайте .env в корне репозитория (или скопируйте из backend/.env.example)
+# и задайте OPENAI_API_KEY
+
+docker compose up --build
 ```
 
-Start production server:
-```bash
-npm start
-```
+API будет доступен на `http://localhost:8000`. Только образ бэкенда: `docker build -t cali-backend ./backend && docker run -p 8000:8000 -e OPENAI_API_KEY=sk-... cali-backend`.
+
+### API Documentation
+
+FastAPI automatically generates interactive API documentation:
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
 
 ## API Endpoints
 
 ### POST /api/analyze-food
 
-Analyzes a food image and returns nutritional information.
+Analyze a food image and extract nutritional information.
 
-**Request Body (JSON):**
+**Request Formats:**
+
+1. **JSON (base64 image):**
 ```json
 {
-  "image": "base64-encoded-image-string",
-  "description": "Optional text description",
-  "userId": "Optional user identifier"
+  "image": "data:image/jpeg;base64,/9j/4AAQSkZJRg...",
+  "description": "Optional description",
+  "userId": "Optional user ID"
 }
 ```
 
-**Request Body (Multipart Form Data):**
-- `image`: Image file (JPEG, PNG, or WebP)
-- `description`: Optional text description (max 500 characters)
+2. **Multipart Form Data:**
+- `image`: Image file (JPEG, PNG, WebP, max 10MB)
+- `description`: Optional text description (max 500 chars)
 - `userId`: Optional user identifier
 
 **Response:**
 ```json
 {
-  "carbs": 45,
-  "protein": 20,
-  "fats": 15,
-  "calories": 400,
-  "analysis": "This appears to be a balanced meal..."
+  "carbs": 45.0,
+  "protein": 20.0,
+  "fats": 15.0,
+  "calories": 380.0,
+  "analysis": "This appears to be a healthy meal..."
 }
 ```
 
-**Error Responses:**
+### GET /health
 
-- `400 Bad Request`: Invalid request (missing image, invalid format, size exceeded)
-- `429 Too Many Requests`: Rate limit exceeded
-- `500 Internal Server Error`: Server error
-- `503 Service Unavailable`: OpenAI service unavailable
+Health check endpoint.
+
+**Response:**
+```json
+{
+  "status": "ok"
+}
+```
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PORT` | Server port | `3000` |
-| `OPENAI_API_KEY` | OpenAI API key (required) | - |
-| `NODE_ENV` | Environment (development/production) | `development` |
-| `RATE_LIMIT_WINDOW_MS` | Rate limit window in milliseconds | `900000` (15 minutes) |
-| `RATE_LIMIT_MAX_REQUESTS` | Maximum requests per window | `20` |
+- `OPENAI_API_KEY`: OpenAI API key (required)
+- `PORT`: Server port (default: 8000)
+- `RATE_LIMIT_WINDOW_MS`: Rate limit window in milliseconds (default: 900000 = 15 minutes)
+- `RATE_LIMIT_MAX_REQUESTS`: Maximum requests per window (default: 20)
 
-## Testing
+## Rate Limiting
 
-### Example curl commands
+The API enforces rate limiting: **20 requests per minute per IP address**.
 
-**Test with base64 image:**
-```bash
-curl -X POST http://localhost:3000/api/analyze-food \
-  -H "Content-Type: application/json" \
-  -d '{
-    "image": "base64-encoded-image-here",
-    "description": "Grilled chicken salad"
-  }'
+Rate limit headers are included in responses:
+- `X-RateLimit-Limit`: Maximum requests allowed
+- `X-RateLimit-Remaining`: Remaining requests in current window
+- `X-RateLimit-Reset`: Time when limit resets
+
+## Error Handling
+
+Errors are returned in the following format:
+```json
+{
+  "error": "Error Type",
+  "message": "Human-readable error message"
+}
 ```
 
-**Test with multipart form data:**
-```bash
-curl -X POST http://localhost:3000/api/analyze-food \
-  -F "image=@/path/to/image.jpg" \
-  -F "description=Grilled chicken salad"
-```
+Common HTTP status codes:
+- `200`: Success
+- `400`: Bad Request (validation error)
+- `429`: Too Many Requests (rate limit exceeded)
+- `500`: Internal Server Error
+- `503`: Service Unavailable (OpenAI API issues)
 
 ## Deployment
-
-### Vercel
-
-1. Install Vercel CLI: `npm i -g vercel`
-2. Deploy: `vercel`
-3. Set environment variables in Vercel dashboard
 
 ### Railway
 
 1. Connect your repository to Railway
-2. Set environment variables in Railway dashboard
-3. Deploy automatically on push
+2. Railway will auto-detect Python and install dependencies
+3. Set environment variables in Railway dashboard
+4. Deploy!
 
 ### Render
 
-1. Create a new Web Service
+1. Create a new Web Service on Render
 2. Connect your repository
-3. Set environment variables
-4. Deploy
+3. Set build command: `pip install -r requirements.txt`
+4. Set start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+5. Set environment variables
+6. Deploy!
 
-## Frontend Configuration
+### Fly.io
 
-To use this backend from the mobile app, set the `EXPO_PUBLIC_BACKEND_URL` environment variable:
+1. Install Fly CLI: `curl -L https://fly.io/install.sh | sh`
+2. Login: `fly auth login`
+3. Launch: `fly launch`
+4. Set secrets: `fly secrets set OPENAI_API_KEY=your-key`
+5. Deploy: `fly deploy`
 
-**Development:**
-```env
-EXPO_PUBLIC_BACKEND_URL=http://localhost:3000
+## Project Structure
+
+```
+backend/
+├── app/
+│   ├── __init__.py
+│   ├── main.py              # FastAPI app entry point
+│   ├── exceptions.py        # Custom exception classes
+│   ├── models/             # Pydantic models
+│   │   ├── api.py          # NutritionResult model
+│   │   ├── requests.py     # Request models
+│   │   └── responses.py    # Response models
+│   ├── routes/             # API routes
+│   │   └── analyze.py      # Food analysis endpoint
+│   ├── services/           # Business logic
+│   │   └── openai.py       # OpenAI integration
+│   ├── middleware/         # Middleware
+│   │   ├── error_handler.py
+│   │   └── rate_limiter.py
+│   └── utils/              # Utilities
+│       └── image.py        # Image processing
+├── requirements.txt        # Python dependencies
+├── runtime.txt            # Python version
+├── Procfile               # Deployment command
+├── .env.example           # Environment variables template
+└── README.md              # This file
 ```
 
-**Production:**
-```env
-EXPO_PUBLIC_BACKEND_URL=https://your-backend-url.com
+## Development
+
+### Type Checking (Optional)
+
+Install mypy for static type checking:
+```bash
+pip install mypy
+mypy app/
 ```
 
-The frontend will automatically fall back to mock implementation if the backend URL is not configured.
+### Testing
 
-## Security Considerations
+Install pytest:
+```bash
+pip install pytest pytest-asyncio httpx
+```
 
-- API keys are stored only in environment variables, never in code
-- Rate limiting prevents abuse and cost overruns
-- Input validation on all requests
-- CORS configured for mobile app origins only
-- Error messages don't expose internal details or API keys
+Run tests:
+```bash
+pytest
+```
 
-## Rate Limiting
+## Troubleshooting
 
-The API enforces rate limits:
-- **Limit**: 20 requests per 15 minutes per IP address
-- **Headers**: Rate limit info included in response headers
-- **Response**: 429 status when limit exceeded
+### OpenAI API Key Not Set
 
-## Error Handling
+Ensure `.env` file exists and contains `OPENAI_API_KEY`. The app will fail to start if the key is missing.
 
-All errors return user-friendly messages:
-- Validation errors: Specific messages about what failed
-- Service errors: Generic messages without exposing internal details
-- OpenAI errors: Mapped to appropriate HTTP status codes
+### Import Errors
 
-## Future Enhancements
+Make sure you're running from the `backend/` directory and have activated your virtual environment.
 
-- User authentication and per-user rate limits
-- Request logging and analytics
-- Image caching
-- Batch processing support
+### Port Already in Use
+
+Change the port in `.env` or use a different port:
+```bash
+uvicorn app.main:app --port 8001
+```
+
+### Rate Limiting Issues
+
+Rate limiting is per IP address. If testing locally, you may hit limits quickly. Consider adjusting rate limits in development.

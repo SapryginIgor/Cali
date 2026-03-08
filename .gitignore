@@ -48,3 +48,9 @@ core
 backend/dist/
 backend/node_modules/
 backend/.env
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.pyc
+backend/.venv/
+backend/venv/
+backend/*.egg-info/

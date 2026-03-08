@@ -1,0 +1,15 @@
+# Cali — backend API в Docker
+# Перед запуском: скопируйте backend/.env.example в .env и задайте OPENAI_API_KEY
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - PORT=8000
+    restart: unless-stopped
