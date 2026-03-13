@@ -4,7 +4,6 @@ Request models for API endpoints
 
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator
-import base64
 
 
 class AnalyzeFoodRequest(BaseModel):

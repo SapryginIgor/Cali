@@ -3,12 +3,17 @@
  * Uses backend API for OpenAI GPT-4 Vision integration, with fallback to mock.
  */
 
+import { IngredientItem } from "@/constants/types";
+
 export interface NutritionResult {
   carbs: number;
   protein: number;
   fats: number;
   calories: number;
   analysis: string;
+  logName: string;
+  ingredients: IngredientItem[];
+  mealNotes?: string;
 }
 
 // Backend API configuration
@@ -103,7 +108,19 @@ async function callBackendAPI(
       typeof data.calories === "number" &&
       typeof data.analysis === "string"
     ) {
-      return data as NutritionResult;
+      return {
+        carbs: data.carbs,
+        protein: data.protein,
+        fats: data.fats,
+        calories: data.calories,
+        analysis: data.analysis,
+        logName:
+          typeof data.logName === "string" && data.logName.trim().length > 0
+            ? data.logName.trim()
+            : description?.trim() || "Meal",
+        ingredients: normalizeIngredientsFromApi(data.ingredients),
+        mealNotes: typeof data.mealNotes === "string" ? data.mealNotes : undefined,
+      };
     } else {
       throw new Error("Invalid response format from backend");
     }
@@ -155,7 +172,68 @@ function estimateNutrition(description: string): NutritionResult {
     fats,
     calories,
     analysis: `Estimated nutrition for "${description || "your meal"}. Add your own AI provider in lib/ai.ts for accurate analysis."`,
+    logName: description?.trim() || "Meal",
+    ingredients: [
+      {
+        id: `mock-${Date.now()}`,
+        name: description || "Meal",
+        quantity: "1 serving",
+        carbs,
+        fats,
+        proteins: protein,
+      },
+    ],
   };
+}
+
+function normalizeIngredientsFromApi(raw: unknown): IngredientItem[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw
+    .map((item, index) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+      const data = item as Record<string, unknown>;
+      const name = typeof data.name === "string" ? data.name.trim() : "";
+      const quantity = typeof data.quantity === "string" ? data.quantity.trim() : "";
+
+      if (!name || !quantity) {
+        return null;
+      }
+
+      return {
+        id:
+          typeof data.id === "string" && data.id.trim().length > 0
+            ? data.id
+            : `ai-${Date.now()}-${index}`,
+        name,
+        quantity,
+        carbs:
+          typeof data.carbs === "number" && Number.isFinite(data.carbs) && data.carbs >= 0
+            ? data.carbs
+            : 0,
+        fats:
+          typeof data.fats === "number" && Number.isFinite(data.fats) && data.fats >= 0
+            ? data.fats
+            : 0,
+        proteins:
+          typeof data.proteins === "number" &&
+          Number.isFinite(data.proteins) &&
+          data.proteins >= 0
+            ? data.proteins
+            : 0,
+        unit: typeof data.unit === "string" && data.unit.trim() ? data.unit.trim() : undefined,
+        preparation:
+          typeof data.preparation === "string" && data.preparation.trim()
+            ? data.preparation.trim()
+            : undefined,
+        note: typeof data.note === "string" && data.note.trim() ? data.note.trim() : undefined,
+      } satisfies IngredientItem;
+    })
+    .filter((item): item is IngredientItem => Boolean(item));
 }
 
 /** Compatible with previous generateObject usage (messages + schema). Returns nutrition data from backend API or mock fallback. */

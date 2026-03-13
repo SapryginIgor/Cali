@@ -5,13 +5,13 @@ This guide covers deploying the backend API and configuring the mobile app to us
 ## Quick Start
 
 ### Option 1: Use Local Backend (Development)
-1. Start backend: `cd backend && npm run dev`
-2. Set environment variable: `EXPO_PUBLIC_BACKEND_URL=http://localhost:3000`
+1. Start backend: `cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
+2. Set environment variable: `EXPO_PUBLIC_BACKEND_URL=http://localhost:8000`
 3. Start app: `npm start`
 
 **Note**: For physical devices, use your computer's IP address instead of `localhost`:
 - Find your IP: `ip addr show` (Linux) or `ipconfig` (Windows/Mac)
-- Use: `EXPO_PUBLIC_BACKEND_URL=http://YOUR_IP:3000`
+- Use: `EXPO_PUBLIC_BACKEND_URL=http://YOUR_IP:8000`
 
 ### Option 2: Deploy Backend (Production)
 
@@ -20,40 +20,6 @@ Choose one of the platforms below, then set `EXPO_PUBLIC_BACKEND_URL` to your de
 ---
 
 ## Deployment Platforms
-
-### 🚀 Vercel (Recommended - Easiest)
-
-**Pros**: Free tier, serverless, automatic deployments, easy setup
-
-1. **Install Vercel CLI**:
-   ```bash
-   npm i -g vercel
-   ```
-
-2. **Deploy from backend directory**:
-   ```bash
-   cd backend
-   vercel
-   ```
-
-3. **Follow prompts**:
-   - Link to existing project or create new
-   - Confirm settings
-   - Deploy!
-
-4. **Set Environment Variables**:
-   - Go to Vercel Dashboard → Your Project → Settings → Environment Variables
-   - Add: `OPENAI_API_KEY` = your OpenAI API key
-   - Add: `NODE_ENV` = `production`
-   - Redeploy if needed
-
-5. **Get your URL**:
-   - Vercel provides: `https://your-project.vercel.app`
-   - Use this as your `EXPO_PUBLIC_BACKEND_URL`
-
-**Note**: Vercel uses serverless functions. The `vercel.json` config is already set up.
-
----
 
 ### 🚂 Railway
 
@@ -68,13 +34,12 @@ Choose one of the platforms below, then set `EXPO_PUBLIC_BACKEND_URL` to your de
 3. **Configure**:
    - Select your repository
    - Root directory: `backend`
-   - Build command: `npm run build`
-   - Start command: `npm start`
+   - Build command: `pip install -r requirements.txt`
+   - Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 
 4. **Set Environment Variables**:
    - Go to Variables tab
    - Add: `OPENAI_API_KEY` = your OpenAI API key
-   - Add: `NODE_ENV` = `production`
    - Add: `PORT` = (Railway sets this automatically)
 
 5. **Get your URL**:
@@ -93,14 +58,13 @@ Choose one of the platforms below, then set `EXPO_PUBLIC_BACKEND_URL` to your de
    - Connect your GitHub repository
    - Name: `cali-backend`
    - Root Directory: `backend`
-   - Environment: `Node`
-   - Build Command: `npm run build`
-   - Start Command: `npm start`
+   - Environment: `Python`
+   - Build Command: `pip install -r requirements.txt`
+   - Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 
 3. **Set Environment Variables**:
    - Go to Environment tab
    - Add: `OPENAI_API_KEY` = your OpenAI API key
-   - Add: `NODE_ENV` = `production`
 
 4. **Deploy**:
    - Click "Create Web Service"
@@ -119,12 +83,12 @@ Choose one of the platforms below, then set `EXPO_PUBLIC_BACKEND_URL` to your de
 Create or update `.env` file in project root:
 
 ```env
-EXPO_PUBLIC_BACKEND_URL=http://localhost:3000
+EXPO_PUBLIC_BACKEND_URL=http://localhost:8000
 ```
 
 **For physical devices**, use your computer's IP:
 ```env
-EXPO_PUBLIC_BACKEND_URL=http://192.168.1.100:3000
+EXPO_PUBLIC_BACKEND_URL=http://192.168.1.100:8000
 ```
 
 ### For Production (Deployed Backend)
@@ -132,7 +96,7 @@ EXPO_PUBLIC_BACKEND_URL=http://192.168.1.100:3000
 Create or update `.env` file:
 
 ```env
-EXPO_PUBLIC_BACKEND_URL=https://your-backend-url.vercel.app
+EXPO_PUBLIC_BACKEND_URL=https://your-backend-url.com
 ```
 
 **Expo Router origin** (for web/production API base URL): set `EXPO_PUBLIC_APP_ORIGIN` so expo-router uses your app URL instead of localhost:
@@ -205,7 +169,7 @@ curl -X POST https://your-backend-url.com/api/analyze-food \
 
 ### CORS errors
 - Backend CORS is configured for mobile apps
-- If issues persist, check CORS settings in `backend/src/index.ts`
+- If issues persist, check CORS settings in `backend/app/main.py`
 
 ### Frontend can't connect
 - Verify `EXPO_PUBLIC_BACKEND_URL` is set correctly
@@ -225,7 +189,6 @@ curl -X POST https://your-backend-url.com/api/analyze-food \
 ```env
 PORT=3000
 OPENAI_API_KEY=sk-your-key-here
-NODE_ENV=production
 RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX_REQUESTS=20
 ```
