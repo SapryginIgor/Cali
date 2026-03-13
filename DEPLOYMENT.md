@@ -193,6 +193,11 @@ curl -X POST https://your-backend-url.com/api/analyze-food \
 
 ## Troubleshooting
 
+### OpenAI returns `403 unsupported_country_region_territory`
+- Cause: deployment server egress IP is in an unsupported OpenAI region.
+- Fix: route backend traffic through VPN/proxy in a supported region.
+- Dokploy + VLESS/REALITY guide: `docs/dokploy-vless-singbox.md`
+
 ### Backend not responding
 - Check environment variables are set correctly
 - Verify `OPENAI_API_KEY` is valid

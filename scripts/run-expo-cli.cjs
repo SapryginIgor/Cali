@@ -5,9 +5,24 @@
  */
 const { spawnSync } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 const node = process.execPath;
-const cliPath = path.join(__dirname, "..", "node_modules", "@expo", "cli", "build", "bin", "cli");
+const cliCandidates = [
+  // Older/hoisted layout
+  path.join(__dirname, "..", "node_modules", "@expo", "cli", "build", "bin", "cli"),
+  // Current npm layout for Expo SDK 54
+  path.join(__dirname, "..", "node_modules", "expo", "node_modules", "@expo", "cli", "build", "bin", "cli"),
+];
+const cliPath = cliCandidates.find((candidate) => fs.existsSync(candidate));
+if (!cliPath) {
+  console.error("Could not locate Expo CLI binary.");
+  console.error("Checked paths:");
+  for (const candidate of cliCandidates) {
+    console.error(` - ${candidate}`);
+  }
+  process.exit(1);
+}
 const args = process.argv.slice(2);
 const preload = path.join(__dirname, "polyfill-readablestream.cjs");
 const nodeOptions = [

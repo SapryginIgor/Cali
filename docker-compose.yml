@@ -1,15 +1,35 @@
-# Cali — backend API в Docker
-# Перед запуском: скопируйте backend/.env.example в .env и задайте OPENAI_API_KEY
-
 services:
+  singbox:
+    image: ghcr.io/sagernet/sing-box:latest
+    restart: unless-stopped
+    command:
+      - sh
+      - -ec
+      - |
+        if [ -z "$SINGBOX_CONFIG_JSON" ]; then
+          echo "SINGBOX_CONFIG_JSON is required"
+          exit 1
+        fi
+        printf "%s" "$SINGBOX_CONFIG_JSON" > /tmp/config.json
+        sing-box check -c /tmp/config.json
+        exec sing-box run -c /tmp/config.json
+    environment:
+      SINGBOX_CONFIG_JSON: ${SINGBOX_CONFIG_JSON}
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
-    env_file:
-      - .env
-    environment:
-      - PORT=8000
     restart: unless-stopped
+    depends_on:
+      - singbox
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      PORT: 8000
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      HTTP_PROXY: http://singbox:3128
+      HTTPS_PROXY: http://singbox:3128
+      NO_PROXY: localhost,127.0.0.1,singbox,backend
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-900000}
+      RATE_LIMIT_MAX_REQUESTS: ${RATE_LIMIT_MAX_REQUESTS:-20}
