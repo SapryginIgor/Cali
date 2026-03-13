@@ -17,7 +17,10 @@ Set these variables in Dokploy for your app:
 - `APP_PORT` (optional, defaults to `8000`)
 - `RATE_LIMIT_WINDOW_MS` (optional)
 - `RATE_LIMIT_MAX_REQUESTS` (optional)
-- `SINGBOX_CONFIG_JSON` (required, full sing-box config JSON)
+- `SINGBOX_CONFIG_JSON` (optional, full sing-box config JSON)
+- `SINGBOX_CONFIG_JSON_B64` (optional, base64 of full sing-box config JSON; recommended)
+
+You must provide at least one of `SINGBOX_CONFIG_JSON` or `SINGBOX_CONFIG_JSON_B64`.
 
 ## 3) `SINGBOX_CONFIG_JSON` template
 
@@ -103,3 +106,14 @@ After deploy:
    - `curl -i https://api.openai.com/v1/models -H "Authorization: Bearer $OPENAI_API_KEY"`
 
 If you still receive `403` from OpenAI, confirm `server_name` and that your proxy exit IP is in a supported region.
+
+## 6) Recommended: use base64 env var
+
+Some panels rewrite quotes/newlines in JSON env values. To avoid that, use base64:
+
+1. Convert your JSON to base64 locally:
+   ```bash
+   printf '%s' '{"log":{"level":"info"}}' | base64
+   ```
+2. Put that output into Dokploy as `SINGBOX_CONFIG_JSON_B64`.
+3. Remove `SINGBOX_CONFIG_JSON` (optional) to avoid confusion.

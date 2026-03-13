@@ -7,15 +7,20 @@ services:
       - -ec
     command:
       - |
-        if [ -z "$SINGBOX_CONFIG_JSON" ]; then
-          echo "SINGBOX_CONFIG_JSON is required"
+        if [ -z "$SINGBOX_CONFIG_JSON" ] && [ -z "$SINGBOX_CONFIG_JSON_B64" ]; then
+          echo "SINGBOX_CONFIG_JSON or SINGBOX_CONFIG_JSON_B64 is required"
           exit 1
         fi
-        printf "%s" "$SINGBOX_CONFIG_JSON" > /tmp/config.json
+        if [ -n "$SINGBOX_CONFIG_JSON_B64" ]; then
+          printf "%s" "$SINGBOX_CONFIG_JSON_B64" | base64 -d > /tmp/config.json
+        else
+          printf "%s" "$SINGBOX_CONFIG_JSON" > /tmp/config.json
+        fi
         sing-box check -c /tmp/config.json
         exec sing-box run -c /tmp/config.json
     environment:
       SINGBOX_CONFIG_JSON: ${SINGBOX_CONFIG_JSON}
+      SINGBOX_CONFIG_JSON_B64: ${SINGBOX_CONFIG_JSON_B64}
 
   backend:
     build:
