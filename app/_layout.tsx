@@ -10,7 +10,7 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
 
 function RootLayoutNav() {
-  const { profile, isLoading } = useApp();
+  const { isLoading } = useApp();
   const segments = useSegments();
   const router = useRouter();
 
@@ -18,21 +18,16 @@ function RootLayoutNav() {
     if (!isLoading) {
       SplashScreen.hideAsync();
 
-      const inTabs = segments[0] === "(tabs)";
-      const onOnboarding = segments[0] === "onboarding";
-
-      if (!profile?.onboardingComplete && !onOnboarding) {
-        router.replace("/onboarding");
-      } else if (profile?.onboardingComplete && !inTabs) {
-        router.replace("/(tabs)");
+      const inMain = segments[0] === "(main)";
+      if (!inMain) {
+        router.replace("/(main)");
       }
     }
-  }, [profile, isLoading, segments, router]);
+  }, [isLoading, segments, router]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="onboarding" />
-      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="(main)" />
     </Stack>
   );
 }

@@ -46,11 +46,10 @@ If you see `ERR_UNKNOWN_FILE_EXTENSION` when running `bun run start`, use Node i
 
 ```
 ├── app/              # Screens (Expo Router)
-│   ├── (tabs)/       # Tab screens (Today, Summary)
-│   ├── onboarding.tsx
+│   ├── (main)/       # Main logging screen
 │   └── _layout.tsx
 ├── constants/        # Colors, types
-├── contexts/         # App context (profile, food entries)
+├── contexts/         # App context (food entries)
 ├── lib/              # Helpers (e.g. lib/ai.ts for nutrition/tips)
 ├── app.json          # Expo config
 └── package.json
@@ -58,7 +57,7 @@ If you see `ERR_UNKNOWN_FILE_EXTENSION` when running `bun run start`, use Node i
 
 ## AI / nutrition analysis
 
-Nutrition estimates and summary tips currently use **local mocks** in `lib/ai.ts` (no external API). To use a real AI provider (e.g. OpenAI, Vercel AI SDK):
+Nutrition estimates currently use **local mocks** in `lib/ai.ts` (no external API). To use a real AI provider (e.g. OpenAI, Vercel AI SDK):
 
 1. Add your SDK and API key.
 2. Replace the implementations of `generateObject` and `generateText` in `lib/ai.ts` with calls to your provider.

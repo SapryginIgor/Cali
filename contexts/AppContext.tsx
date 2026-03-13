@@ -2,38 +2,18 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import createContextHook from "@nkzw/create-context-hook";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { FoodEntry, UserProfile, DEFAULT_GOALS, GoalType } from "@/constants/types";
+import { FoodEntry } from "@/constants/types";
 
-const STORAGE_KEY_PROFILE = "nutrition_profile";
 const STORAGE_KEY_ENTRIES = "nutrition_entries";
 
 export const [AppProvider, useApp] = createContextHook(() => {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [entries, setEntries] = useState<FoodEntry[]>([]);
-
-  const profileQuery = useQuery({
-    queryKey: ["profile"],
-    queryFn: async () => {
-      const stored = await AsyncStorage.getItem(STORAGE_KEY_PROFILE);
-      return stored ? JSON.parse(stored) : null;
-    },
-  });
 
   const entriesQuery = useQuery({
     queryKey: ["entries"],
     queryFn: async () => {
       const stored = await AsyncStorage.getItem(STORAGE_KEY_ENTRIES);
       return stored ? JSON.parse(stored) : [];
-    },
-  });
-
-  const saveProfileMutation = useMutation({
-    mutationFn: async (newProfile: UserProfile) => {
-      await AsyncStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(newProfile));
-      return newProfile;
-    },
-    onSuccess: (data) => {
-      setProfile(data);
     },
   });
 
@@ -48,25 +28,10 @@ export const [AppProvider, useApp] = createContextHook(() => {
   });
 
   useEffect(() => {
-    if (profileQuery.data !== undefined) {
-      setProfile(profileQuery.data);
-    }
-  }, [profileQuery.data]);
-
-  useEffect(() => {
     if (entriesQuery.data) {
       setEntries(entriesQuery.data);
     }
   }, [entriesQuery.data]);
-
-  const completeOnboarding = (goal: GoalType) => {
-    const newProfile: UserProfile = {
-      goal,
-      dailyGoals: DEFAULT_GOALS[goal],
-      onboardingComplete: true,
-    };
-    saveProfileMutation.mutate(newProfile);
-  };
 
   const addFoodEntry = (entry: FoodEntry) => {
     const updated = [...entries, entry];
@@ -99,10 +64,8 @@ export const [AppProvider, useApp] = createContextHook(() => {
   };
 
   return {
-    profile,
     entries,
-    isLoading: profileQuery.isLoading || entriesQuery.isLoading,
-    completeOnboarding,
+    isLoading: entriesQuery.isLoading,
     addFoodEntry,
     getTodayEntries,
     getTodayTotals,

@@ -30,7 +30,7 @@ const nutritionSchema = z.object({
 });
 
 export default function TodayScreen() {
-  const { profile, addFoodEntry, getTodayEntries, getTodayTotals } = useApp();
+  const { addFoodEntry, getTodayEntries, getTodayTotals } = useApp();
   const [modalVisible, setModalVisible] = useState(false);
   const [inputText, setInputText] = useState("");
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -100,7 +100,7 @@ export default function TodayScreen() {
       console.error("Error analyzing food:", error);
       console.error("Error message:", error?.message);
       console.error("Error stack:", error?.stack);
-      
+
       let errorMessage = "Failed to analyze food. Please try again.";
       if (error?.message) {
         if (error.message.includes("JSON")) {
@@ -109,7 +109,7 @@ export default function TodayScreen() {
           errorMessage = error.message;
         }
       }
-      
+
       Alert.alert("Error", errorMessage);
     } finally {
       setIsAnalyzing(false);
@@ -170,7 +170,6 @@ export default function TodayScreen() {
     });
   };
 
-
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -197,74 +196,70 @@ export default function TodayScreen() {
         </View>
 
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {profile && (
-            <View style={styles.macrosCard}>
+          <View style={styles.macrosCard}>
             <LinearGradient
               colors={["#FFFFFF", "#FFFBF7"]}
               style={styles.macrosCardGradient}
             >
-                <View style={styles.macrosHeader}>
-                  <Text style={styles.macrosTitle}>Today's Intake</Text>
-                  <Text style={styles.macrosSubtitle}>
-                    {todayEntries.length} {todayEntries.length === 1 ? 'meal' : 'meals'} logged
-                  </Text>
+              <View style={styles.macrosHeader}>
+                <Text style={styles.macrosTitle}>Today's Intake</Text>
+                <Text style={styles.macrosSubtitle}>
+                  {todayEntries.length} {todayEntries.length === 1 ? "meal" : "meals"} logged
+                </Text>
+              </View>
+
+              <View style={styles.macrosGrid}>
+                {/* Calories - Large Card */}
+                <View style={styles.macroCardLarge}>
+                  <LinearGradient
+                    colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.macroCardLargeGradient}
+                  >
+                    <Text style={styles.macroCardLargeLabel}>Calories</Text>
+                    <Text style={styles.macroCardLargeValue}>
+                      {Math.round(totals.calories)}
+                    </Text>
+                    <Text style={styles.macroCardLargeGoal}>cal</Text>
+                  </LinearGradient>
                 </View>
 
-                <View style={styles.macrosGrid}>
-                  {/* Calories - Large Card */}
-                  <View style={styles.macroCardLarge}>
-                    <LinearGradient
-                      colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.macroCardLargeGradient}
-                    >
-                      <Text style={styles.macroCardLargeLabel}>Calories</Text>
-                      <Text style={styles.macroCardLargeValue}>
-                        {Math.round(totals.calories)}
-                      </Text>
-                      <Text style={styles.macroCardLargeGoal}>
-                        cal
-                      </Text>
-                    </LinearGradient>
-                  </View>
-
-                  {/* Macros Grid */}
-                  <View style={styles.macrosRow}>
-                    <View style={styles.macroCard}>
-                      <View style={styles.macroCardHeader}>
-                        <View style={[styles.macroDot, { backgroundColor: Colors.light.macroProtein }]} />
-                        <Text style={styles.macroCardLabel}>Protein</Text>
-                      </View>
-                      <Text style={styles.macroCardValue}>
-                        {Math.round(totals.protein)}g
-                      </Text>
+                {/* Macros Grid */}
+                <View style={styles.macrosRow}>
+                  <View style={styles.macroCard}>
+                    <View style={styles.macroCardHeader}>
+                      <View style={[styles.macroDot, { backgroundColor: Colors.light.macroProtein }]} />
+                      <Text style={styles.macroCardLabel}>Protein</Text>
                     </View>
-
-                    <View style={styles.macroCard}>
-                      <View style={styles.macroCardHeader}>
-                        <View style={[styles.macroDot, { backgroundColor: Colors.light.macroCarbs }]} />
-                        <Text style={styles.macroCardLabel}>Carbs</Text>
-                      </View>
-                      <Text style={styles.macroCardValue}>
-                        {Math.round(totals.carbs)}g
-                      </Text>
-                    </View>
+                    <Text style={styles.macroCardValue}>
+                      {Math.round(totals.protein)}g
+                    </Text>
                   </View>
 
                   <View style={styles.macroCard}>
                     <View style={styles.macroCardHeader}>
-                      <View style={[styles.macroDot, { backgroundColor: Colors.light.macroFats }]} />
-                      <Text style={styles.macroCardLabel}>Fats</Text>
+                      <View style={[styles.macroDot, { backgroundColor: Colors.light.macroCarbs }]} />
+                      <Text style={styles.macroCardLabel}>Carbs</Text>
                     </View>
                     <Text style={styles.macroCardValue}>
-                      {Math.round(totals.fats)}g
+                      {Math.round(totals.carbs)}g
                     </Text>
                   </View>
                 </View>
-              </LinearGradient>
-            </View>
-          )}
+
+                <View style={styles.macroCard}>
+                  <View style={styles.macroCardHeader}>
+                    <View style={[styles.macroDot, { backgroundColor: Colors.light.macroFats }]} />
+                    <Text style={styles.macroCardLabel}>Fats</Text>
+                  </View>
+                  <Text style={styles.macroCardValue}>
+                    {Math.round(totals.fats)}g
+                  </Text>
+                </View>
+              </View>
+            </LinearGradient>
+          </View>
 
           <View style={styles.timelineHeader}>
             <Text style={styles.timelineTitle}>Meals</Text>
@@ -316,7 +311,7 @@ export default function TodayScreen() {
                       )}
 
                       <Text style={styles.entryDescription}>{entry.description}</Text>
-                      
+
                       {entry.aiAnalysis && (
                         <View style={styles.entryAnalysisContainer}>
                           <Sparkles size={14} color={Colors.light.accent1} />
@@ -436,7 +431,7 @@ export default function TodayScreen() {
 
             <View style={styles.photoButtons}>
               <TouchableOpacity
-                style={styles.photoButton}
+                style={[styles.photoButton, styles.photoButtonLeft]}
                 onPress={handleCamera}
                 disabled={isAnalyzing}
               >
@@ -445,7 +440,9 @@ export default function TodayScreen() {
                   style={styles.photoButtonGradient}
                 >
                   <Camera color={Colors.light.tint} size={24} />
-                  <Text style={styles.photoButtonText}>Retake Photo</Text>
+                  <Text style={styles.photoButtonText} numberOfLines={1}>
+                    Retake Photo
+                  </Text>
                 </LinearGradient>
               </TouchableOpacity>
 
@@ -459,7 +456,9 @@ export default function TodayScreen() {
                   style={styles.photoButtonGradient}
                 >
                   <ImagePlus color={Colors.light.tint} size={24} />
-                  <Text style={styles.photoButtonText}>Choose from Gallery</Text>
+                  <Text style={styles.photoButtonText} numberOfLines={1}>
+                    Choose from Gallery
+                  </Text>
                 </LinearGradient>
               </TouchableOpacity>
             </View>
@@ -936,27 +935,32 @@ const styles = StyleSheet.create({
   },
   photoButtons: {
     flexDirection: "row",
-    gap: 12,
     marginBottom: 24,
   },
   photoButton: {
     flex: 1,
+    minWidth: 0,
     borderRadius: 16,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: Colors.light.border,
+  },
+  photoButtonLeft: {
+    marginRight: 12,
   },
   photoButtonGradient: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+    paddingHorizontal: 10,
     paddingVertical: 16,
   },
   photoButtonText: {
     fontSize: 14,
     fontWeight: "600" as const,
     color: Colors.light.text,
+    flexShrink: 1,
   },
   analyzingContainer: {
     alignItems: "center",
