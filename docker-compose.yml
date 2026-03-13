@@ -2,9 +2,10 @@ services:
   singbox:
     image: ghcr.io/sagernet/sing-box:latest
     restart: unless-stopped
-    command:
-      - sh
+    entrypoint:
+      - /bin/sh
       - -ec
+    command:
       - |
         if [ -z "$SINGBOX_CONFIG_JSON" ]; then
           echo "SINGBOX_CONFIG_JSON is required"
