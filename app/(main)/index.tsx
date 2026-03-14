@@ -1,8 +1,9 @@
 import { generateObject } from "@/lib/ai";
 import * as ImagePicker from "expo-image-picker";
 import { Camera, ImagePlus, Pencil, Plus, Sparkles, Trash2 } from "lucide-react-native";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AppState,
   View,
   Text,
   StyleSheet,
@@ -12,7 +13,6 @@ import {
   FlatList,
   Modal,
   Alert,
-  ActivityIndicator,
   useWindowDimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -208,6 +208,7 @@ const CalendarCarousel = memo(
 export default function TodayScreen() {
   const { width: screenWidth } = useWindowDimensions();
   const {
+    entries,
     addFoodEntry,
     updateFoodEntry,
     deleteFoodEntry,
@@ -218,7 +219,7 @@ export default function TodayScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [inputText, setInputText] = useState("");
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [editDescription, setEditDescription] = useState("");
@@ -235,66 +236,73 @@ export default function TodayScreen() {
   );
   const displayedEntries = getEntriesByDate(selectedDate);
   const totals = getTotalsByDate(selectedDate);
+  const pendingEntryIdsRef = useRef<Set<string>>(new Set());
+  const isE2EMode = process.env.EXPO_PUBLIC_E2E === "1";
 
-  const analyzeFood = async (description: string, imageUri?: string) => {
-    setIsAnalyzing(true);
+  const getAnalysisMessages = useCallback((description: string, imageUri?: string) => {
+    let messages: any[] = [];
+    if (imageUri) {
+      messages = [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text:
+                "Analyze this meal image and return ONLY JSON with fields: carbs (number), protein (number), fats (number), calories (number), analysis (string), logName (string), ingredients (array of {id, name, quantity, carbs, fats, proteins, unit?, preparation?, note?}), and optional mealNotes (string). Include one ingredient item per meal component. Name, quantity, carbs, fats, and proteins are required for every ingredient. logName must be a short human-friendly title for the log." +
+                (description ? ` Additional context: ${description}` : ""),
+            },
+            {
+              type: "image",
+              image: imageUri,
+            },
+          ],
+        },
+      ];
+    } else {
+      messages = [
+        {
+          role: "user",
+          content:
+            "Analyze this meal description and return ONLY JSON with fields: carbs, protein, fats, calories, analysis, logName, ingredients (array with id, name, quantity, carbs, fats, proteins), and optional mealNotes. logName must be a short human-friendly title for the log. " +
+            `Description: ${description}`,
+        },
+      ];
+    }
+    return messages;
+  }, []);
+
+  const processPendingEntry = useCallback(async (entryId: string, description: string, imageUri?: string) => {
+    if (pendingEntryIdsRef.current.has(entryId)) {
+      return;
+    }
+    pendingEntryIdsRef.current.add(entryId);
     try {
-      let messages: any[] = [];
-
-      if (imageUri) {
-        messages = [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text:
-                  "Analyze this meal image and return ONLY JSON with fields: carbs (number), protein (number), fats (number), calories (number), analysis (string), logName (string), ingredients (array of {id, name, quantity, carbs, fats, proteins, unit?, preparation?, note?}), and optional mealNotes (string). Include one ingredient item per meal component. Name, quantity, carbs, fats, and proteins are required for every ingredient. logName must be a short human-friendly title for the log." +
-                  (description ? ` Additional context: ${description}` : ""),
-              },
-              {
-                type: "image",
-                image: imageUri,
-              },
-            ],
-          },
-        ];
-      } else {
-        messages = [
-          {
-            role: "user",
-            content:
-              "Analyze this meal description and return ONLY JSON with fields: carbs, protein, fats, calories, analysis, logName, ingredients (array with id, name, quantity, carbs, fats, proteins), and optional mealNotes. logName must be a short human-friendly title for the log. " +
-              `Description: ${description}`,
-          },
-        ];
-      }
-
+      const messages = getAnalysisMessages(description, imageUri);
       console.log("Sending request to AI with messages:", JSON.stringify(messages, null, 2));
-
       const result = await generateObject<z.infer<typeof nutritionSchema>>({
         messages,
         schema: nutritionSchema,
       });
-
       console.log("AI response:", result);
-
-      const now = new Date();
-      const entryDate = new Date(selectedDate);
-      entryDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
       const normalizedIngredients = normalizeIngredientList(
         result.ingredients,
         description.trim() || undefined
       );
       const aiLogName = result.logName?.trim() || "Meal";
+      const existingEntry = entries.find((entry) => entry.id === entryId);
+      if (!existingEntry) {
+        return;
+      }
 
-      const entry: FoodEntry = {
-        id: Date.now().toString(),
-        timestamp: entryDate.getTime(),
+      updateFoodEntry({
+        ...existingEntry,
         description: aiLogName,
+        pendingDescription: description.trim() || undefined,
         mealNotes: result.mealNotes,
         ingredients: normalizedIngredients,
-        imageUri,
+        analysisStatus: "completed",
+        analysisError: undefined,
         nutrition: {
           carbs: result.carbs,
           protein: result.protein,
@@ -302,31 +310,42 @@ export default function TodayScreen() {
           calories: result.calories,
         },
         aiAnalysis: result.analysis,
-      };
-
-      addFoodEntry(entry);
-      setModalVisible(false);
-      setInputText("");
-      setSelectedImage(null);
+      });
     } catch (error: any) {
       console.error("Error analyzing food:", error);
       console.error("Error message:", error?.message);
       console.error("Error stack:", error?.stack);
-
-      let errorMessage = "Failed to analyze food. Please try again.";
-      if (error?.message) {
-        if (error.message.includes("JSON")) {
-          errorMessage = "AI service error. Please try again in a moment.";
-        } else {
-          errorMessage = error.message;
-        }
+      const existingEntry = entries.find((entry) => entry.id === entryId);
+      if (!existingEntry) {
+        return;
       }
-
-      Alert.alert("Error", errorMessage);
+      updateFoodEntry({
+        ...existingEntry,
+        description: "Analysis failed",
+        pendingDescription: description.trim() || undefined,
+        analysisStatus: "failed",
+        analysisError: error?.message || "Failed to analyze food",
+        aiAnalysis: "We could not analyze this meal. You can try logging it again.",
+      });
     } finally {
-      setIsAnalyzing(false);
+      pendingEntryIdsRef.current.delete(entryId);
     }
-  };
+  }, [entries, getAnalysisMessages, updateFoodEntry]);
+
+  const handleOpenLogMeal = useCallback(() => {
+    setInputText("");
+    setSelectedImage(null);
+    setModalVisible(true);
+  }, []);
+
+  const handleUseE2ETestImage = useCallback(() => {
+    if (!isE2EMode) {
+      return;
+    }
+    setSelectedImage(
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/w8AAgMBgJ7n6fQAAAAASUVORK5CYII="
+    );
+  }, [isE2EMode]);
 
   const handleCamera = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -343,7 +362,6 @@ export default function TodayScreen() {
 
     if (!result.canceled) {
       setSelectedImage(result.assets[0].uri);
-      setModalVisible(true);
     }
   };
 
@@ -366,12 +384,63 @@ export default function TodayScreen() {
   };
 
   const handleSubmit = () => {
+    if (isSubmitting) {
+      return;
+    }
     if (!selectedImage) {
       Alert.alert("Photo required", "Please take a photo of your meal");
       return;
     }
-    analyzeFood(inputText, selectedImage || undefined);
+    setIsSubmitting(true);
+    const pendingId = Date.now().toString();
+    const now = new Date();
+    const entryDate = new Date(selectedDate);
+    entryDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+    const pendingDescription = inputText.trim();
+
+    addFoodEntry({
+      id: pendingId,
+      timestamp: entryDate.getTime(),
+      description: "Analyzing meal...",
+      pendingDescription: pendingDescription || undefined,
+      ingredients: [],
+      imageUri: selectedImage,
+      analysisStatus: "pending",
+      nutrition: {
+        carbs: 0,
+        protein: 0,
+        fats: 0,
+        calories: 0,
+      },
+    });
+
+    setModalVisible(false);
+    setInputText("");
+    setSelectedImage(null);
+    setIsSubmitting(false);
   };
+
+  useEffect(() => {
+    entries
+      .filter((entry) => entry.analysisStatus === "pending" && entry.imageUri)
+      .forEach((entry) => {
+        void processPendingEntry(entry.id, entry.pendingDescription || "", entry.imageUri);
+      });
+  }, [entries, processPendingEntry]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (nextAppState !== "active") {
+        return;
+      }
+      entries
+        .filter((entry) => entry.analysisStatus === "pending" && entry.imageUri)
+        .forEach((entry) => {
+          void processPendingEntry(entry.id, entry.pendingDescription || "", entry.imageUri);
+        });
+    });
+    return () => subscription.remove();
+  }, [entries, processPendingEntry]);
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -660,6 +729,16 @@ export default function TodayScreen() {
                           <View style={styles.entryTimeBadge}>
                             <Text style={styles.entryTime}>{formatTime(entry.timestamp)}</Text>
                           </View>
+                          {entry.analysisStatus === "pending" && (
+                            <View style={styles.entryPendingBadge}>
+                              <Text style={styles.entryPendingBadgeText}>Pending</Text>
+                            </View>
+                          )}
+                          {entry.analysisStatus === "failed" && (
+                            <View style={styles.entryFailedBadge}>
+                              <Text style={styles.entryFailedBadgeText}>Failed</Text>
+                            </View>
+                          )}
                         </View>
                         <View style={styles.entryHeaderRight}>
                           <View style={styles.entryCaloriesBadge}>
@@ -671,6 +750,7 @@ export default function TodayScreen() {
                             <TouchableOpacity
                               style={styles.entryActionButton}
                               onPress={() => handleEditEntry(entry)}
+                              disabled={entry.analysisStatus === "pending"}
                               accessibilityRole="button"
                               accessibilityLabel="Edit meal log"
                             >
@@ -700,7 +780,7 @@ export default function TodayScreen() {
 
                       <Text style={styles.entryDescription}>{entry.description}</Text>
 
-                      {entry.ingredients.length > 0 && (
+                      {entry.analysisStatus !== "pending" && entry.ingredients.length > 0 && (
                         <View style={styles.ingredientsList}>
                           {entry.ingredients.map((ingredient) => (
                             <View key={ingredient.id} style={styles.ingredientChip}>
@@ -717,7 +797,16 @@ export default function TodayScreen() {
                         </View>
                       )}
 
-                      {entry.aiAnalysis && (
+                      {entry.analysisStatus === "pending" && (
+                        <View style={styles.entryAnalysisContainer}>
+                          <Sparkles size={14} color={Colors.light.accent1} />
+                          <Text style={styles.entryAnalysis}>
+                            Your meal is being analyzed in the background.
+                          </Text>
+                        </View>
+                      )}
+
+                      {entry.analysisStatus !== "pending" && entry.aiAnalysis && (
                         <View style={styles.entryAnalysisContainer}>
                           <Sparkles size={14} color={Colors.light.accent1} />
                           <Text style={styles.entryAnalysis}>{entry.aiAnalysis}</Text>
@@ -754,8 +843,10 @@ export default function TodayScreen() {
       <View style={styles.fabContainer}>
         <TouchableOpacity
           style={styles.fab}
-          onPress={handleCamera}
+          onPress={handleOpenLogMeal}
           activeOpacity={0.9}
+          accessibilityRole="button"
+          accessibilityLabel="Log meal"
         >
           <LinearGradient
             colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
@@ -943,14 +1034,19 @@ export default function TodayScreen() {
               <Text style={styles.modalCancel}>Cancel</Text>
             </TouchableOpacity>
             <Text style={styles.modalTitle}>Log Meal</Text>
-            <TouchableOpacity onPress={handleSubmit} disabled={isAnalyzing}>
+            <TouchableOpacity
+              onPress={handleSubmit}
+              disabled={isSubmitting || !selectedImage}
+              accessibilityRole="button"
+              accessibilityLabel="Confirm log meal"
+            >
               <Text
                 style={[
                   styles.modalDone,
-                  isAnalyzing && styles.modalDoneDisabled,
+                  (isSubmitting || !selectedImage) && styles.modalDoneDisabled,
                 ]}
               >
-                {isAnalyzing ? "..." : "Done"}
+                {isSubmitting ? "..." : "Done"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -978,7 +1074,7 @@ export default function TodayScreen() {
                 onChangeText={setInputText}
                 multiline
                 maxLength={200}
-                editable={!isAnalyzing}
+                editable={!isSubmitting}
               />
             </View>
 
@@ -986,7 +1082,7 @@ export default function TodayScreen() {
               <TouchableOpacity
                 style={[styles.photoButton, styles.photoButtonLeft]}
                 onPress={handleCamera}
-                disabled={isAnalyzing}
+                disabled={isSubmitting}
               >
                 <LinearGradient
                   colors={[Colors.light.lightBlue, "#FFFFFF"]}
@@ -994,7 +1090,7 @@ export default function TodayScreen() {
                 >
                   <Camera color={Colors.light.tint} size={24} />
                   <Text style={styles.photoButtonText} numberOfLines={1}>
-                    Retake Photo
+                    {selectedImage ? "Retake Photo" : "Take Photo"}
                   </Text>
                 </LinearGradient>
               </TouchableOpacity>
@@ -1002,7 +1098,7 @@ export default function TodayScreen() {
               <TouchableOpacity
                 style={styles.photoButton}
                 onPress={handleGallery}
-                disabled={isAnalyzing}
+                disabled={isSubmitting}
               >
                 <LinearGradient
                   colors={[Colors.light.lightBlue, "#FFFFFF"]}
@@ -1016,12 +1112,15 @@ export default function TodayScreen() {
               </TouchableOpacity>
             </View>
 
-            {isAnalyzing && (
-              <View style={styles.analyzingContainer}>
-                <ActivityIndicator size="large" color={Colors.light.tint} />
-                <Text style={styles.analyzingText}>AI is analyzing your meal...</Text>
-                <Text style={styles.analyzingSubtext}>This may take up to a minute</Text>
-              </View>
+            {isE2EMode && !selectedImage && (
+              <TouchableOpacity
+                style={styles.e2eImageButton}
+                onPress={handleUseE2ETestImage}
+                accessibilityRole="button"
+                accessibilityLabel="Use test image"
+              >
+                <Text style={styles.e2eImageButtonText}>Use test image</Text>
+              </TouchableOpacity>
             )}
           </ScrollView>
         </SafeAreaView>
@@ -1389,6 +1488,28 @@ const styles = StyleSheet.create({
     fontWeight: "600" as const,
     color: Colors.light.accent1,
   },
+  entryPendingBadge: {
+    backgroundColor: "#FEF3C7",
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  entryPendingBadgeText: {
+    fontSize: 12,
+    fontWeight: "700" as const,
+    color: "#92400E",
+  },
+  entryFailedBadge: {
+    backgroundColor: "#FEE2E2",
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  entryFailedBadgeText: {
+    fontSize: 12,
+    fontWeight: "700" as const,
+    color: "#B91C1C",
+  },
   entryCaloriesBadge: {
     backgroundColor: Colors.light.gradientStart,
     paddingHorizontal: 12,
@@ -1706,18 +1827,19 @@ const styles = StyleSheet.create({
     color: Colors.light.text,
     flexShrink: 1,
   },
-  analyzingContainer: {
+  e2eImageButton: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     alignItems: "center",
-    paddingVertical: 40,
-    gap: 12,
+    backgroundColor: Colors.light.cardBackground,
   },
-  analyzingText: {
-    fontSize: 16,
-    fontWeight: "600" as const,
-    color: Colors.light.text,
-  },
-  analyzingSubtext: {
+  e2eImageButtonText: {
     fontSize: 14,
-    color: Colors.light.secondaryText,
+    fontWeight: "700" as const,
+    color: Colors.light.tint,
   },
 });

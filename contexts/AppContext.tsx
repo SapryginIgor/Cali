@@ -12,13 +12,22 @@ export const [AppProvider, useApp] = createContextHook(() => {
 
   const normalizeEntry = (entry: FoodEntry): FoodEntry => {
     const ingredients = normalizeIngredientList(entry.ingredients, entry.description);
+    const hasCompletedData =
+      ingredients.length > 0 ||
+      (entry.nutrition?.calories ?? 0) > 0 ||
+      Boolean(entry.aiAnalysis?.trim());
+    const normalizedStatus =
+      entry.analysisStatus ?? (hasCompletedData ? "completed" : "pending");
     return {
       ...entry,
       ingredients,
+      analysisStatus: normalizedStatus,
       description:
-        entry.description?.trim().length > 0
-          ? entry.description
-          : toIngredientSummary(ingredients),
+        normalizedStatus === "pending"
+          ? entry.description?.trim() || "Analyzing meal..."
+          : entry.description?.trim().length > 0
+            ? entry.description
+            : toIngredientSummary(ingredients),
     };
   };
 

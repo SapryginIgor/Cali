@@ -10,6 +10,12 @@ class AnalyzeFoodRequest(BaseModel):
     """Request model for food analysis endpoint"""
     image: str = Field(..., min_length=1, description="Base64 encoded image string")
     description: Optional[str] = Field(None, max_length=500, description="Optional text description")
+    idempotencyKey: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=128,
+        description="Optional client-provided idempotency key for async log creation"
+    )
     userId: Optional[str] = Field(None, description="Optional user identifier for future auth")
 
     @field_validator("image")

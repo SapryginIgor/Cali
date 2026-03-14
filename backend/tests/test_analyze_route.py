@@ -1,6 +1,7 @@
 import base64
 import os
 import sys
+import time
 from typing import Optional
 from pathlib import Path
 
@@ -120,3 +121,99 @@ def test_upstream_error_handling(client: TestClient, monkeypatch: pytest.MonkeyP
     assert response.status_code == 503
     payload = response.json()
     assert payload["message"] == "Service temporarily unavailable"
+
+
+def _wait_for_log_status(client: TestClient, log_id: str, expected_status: str, timeout_s: float = 1.0):
+    deadline = time.time() + timeout_s
+    last_payload = None
+    while time.time() < deadline:
+        response = client.get(f"/api/logs/{log_id}")
+        assert response.status_code == 200
+        payload = response.json()
+        last_payload = payload
+        if payload["status"] == expected_status:
+            return payload
+        time.sleep(0.02)
+    raise AssertionError(f"Log {log_id} did not reach status={expected_status}. Last payload: {last_payload}")
+
+
+def test_async_log_create_and_complete(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    async def fake_analyze_food_image(
+        image_base64: str,
+        description: Optional[str] = None
+    ) -> NutritionResult:
+        assert isinstance(image_base64, str)
+        assert description == "Async meal"
+        return build_result()
+
+    monkeypatch.setattr("app.routes.analyze.analyze_food_image", fake_analyze_food_image)
+
+    create_response = client.post(
+        "/api/logs",
+        json={
+            "image": f"data:image/png;base64,{PNG_1X1_BASE64}",
+            "description": "Async meal",
+            "idempotencyKey": "key-1",
+        },
+    )
+    assert create_response.status_code == 200
+    create_payload = create_response.json()
+    assert create_payload["status"] == "pending"
+    assert create_payload["id"]
+
+    completed_payload = _wait_for_log_status(client, create_payload["id"], "completed")
+    assert completed_payload["result"]["logName"] == "Chicken Rice Plate"
+    assert completed_payload["error"] is None
+
+
+def test_async_log_idempotency_returns_same_log(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    async def fake_analyze_food_image(
+        _image_base64: str,
+        _description: Optional[str] = None
+    ) -> NutritionResult:
+        return build_result()
+
+    monkeypatch.setattr("app.routes.analyze.analyze_food_image", fake_analyze_food_image)
+
+    first = client.post(
+        "/api/logs",
+        json={
+            "image": f"data:image/png;base64,{PNG_1X1_BASE64}",
+            "description": "Meal",
+            "idempotencyKey": "dedupe-1",
+        },
+    )
+    second = client.post(
+        "/api/logs",
+        json={
+            "image": f"data:image/png;base64,{PNG_1X1_BASE64}",
+            "description": "Meal",
+            "idempotencyKey": "dedupe-1",
+        },
+    )
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["id"] == second.json()["id"]
+
+
+def test_async_log_failure_transition(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    async def failing_analyze_food_image(
+        _image_base64: str,
+        _description: Optional[str] = None
+    ) -> NutritionResult:
+        raise AppError(503, "Service temporarily unavailable")
+
+    monkeypatch.setattr("app.routes.analyze.analyze_food_image", failing_analyze_food_image)
+
+    create_response = client.post(
+        "/api/logs",
+        json={
+            "image": f"data:image/png;base64,{PNG_1X1_BASE64}",
+            "description": "Meal",
+            "idempotencyKey": "failure-1",
+        },
+    )
+    assert create_response.status_code == 200
+    create_payload = create_response.json()
+    failed_payload = _wait_for_log_status(client, create_payload["id"], "failed")
+    assert failed_payload["error"]

@@ -241,6 +241,11 @@ export async function generateObject<T>(options: {
   messages: Array<{ role: string; content: unknown } | { role: string; content: unknown[] }>;
   schema: unknown;
 }): Promise<T> {
+  const e2eDelay = Number(process.env.EXPO_PUBLIC_E2E_DELAY_MS || 0);
+  if (Number.isFinite(e2eDelay) && e2eDelay > 0) {
+    await new Promise((resolve) => setTimeout(resolve, e2eDelay));
+  }
+
   const first = options.messages[0];
   if (!first || typeof first !== "object" || !("content" in first)) {
     console.log("[Cali API] Using mock (no message content)");
@@ -272,6 +277,10 @@ export async function generateObject<T>(options: {
   }
 
   // If backend URL is configured and we have an image, use backend API
+  if (process.env.EXPO_PUBLIC_E2E === "1") {
+    return estimateNutrition(description || "meal") as T;
+  }
+
   if (BACKEND_URL && imageUri) {
     console.log("[Cali API] Using backend:", BACKEND_URL, "| imageUri:", !!imageUri);
     try {
