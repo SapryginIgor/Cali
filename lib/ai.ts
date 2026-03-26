@@ -4,6 +4,7 @@
  */
 
 import { IngredientItem } from "@/constants/types";
+import { supabase } from "@/lib/supabase";
 
 export interface NutritionResult {
   carbs: number;
@@ -14,6 +15,8 @@ export interface NutritionResult {
   logName: string;
   ingredients: IngredientItem[];
   mealNotes?: string;
+  confidence?: number;
+  foodCategory?: string;
 }
 
 // Backend API configuration
@@ -76,12 +79,23 @@ async function callBackendAPI(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), BACKEND_REQUEST_TIMEOUT_MS);
 
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData.session?.access_token) {
+      headers["Authorization"] = `Bearer ${sessionData.session.access_token}`;
+    }
+  } catch {
+    // If session retrieval fails, proceed without auth header
+  }
+
   try {
     const response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
         image: imageBase64,
         description: description,
@@ -120,6 +134,8 @@ async function callBackendAPI(
             : description?.trim() || "Meal",
         ingredients: normalizeIngredientsFromApi(data.ingredients),
         mealNotes: typeof data.mealNotes === "string" ? data.mealNotes : undefined,
+        confidence: typeof data.confidence === "number" ? data.confidence : undefined,
+        foodCategory: typeof data.foodCategory === "string" ? data.foodCategory : undefined,
       };
     } else {
       throw new Error("Invalid response format from backend");
@@ -192,7 +208,7 @@ function normalizeIngredientsFromApi(raw: unknown): IngredientItem[] {
   }
 
   return raw
-    .map((item, index) => {
+    .map((item, index): IngredientItem | null => {
       if (!item || typeof item !== "object") {
         return null;
       }
@@ -204,7 +220,7 @@ function normalizeIngredientsFromApi(raw: unknown): IngredientItem[] {
         return null;
       }
 
-      return {
+      const ingredient: IngredientItem = {
         id:
           typeof data.id === "string" && data.id.trim().length > 0
             ? data.id
@@ -231,9 +247,10 @@ function normalizeIngredientsFromApi(raw: unknown): IngredientItem[] {
             ? data.preparation.trim()
             : undefined,
         note: typeof data.note === "string" && data.note.trim() ? data.note.trim() : undefined,
-      } satisfies IngredientItem;
+      };
+      return ingredient;
     })
-    .filter((item): item is IngredientItem => Boolean(item));
+    .filter((item): item is IngredientItem => item !== null);
 }
 
 /** Compatible with previous generateObject usage (messages + schema). Returns nutrition data from backend API or mock fallback. */

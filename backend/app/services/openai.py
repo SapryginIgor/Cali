@@ -1,112 +1,310 @@
 """
-OpenAI service for food image analysis
-Uses GPT-4 Vision API with structured outputs
+OpenAI service for food image analysis.
+Two-step classify-then-analyze pipeline using GPT-4.1 Vision.
 """
 
-import os
 import json
+import logging
+import time
 from typing import Any, Optional
-from openai import AsyncOpenAI, APIError
-from app.models.api import IngredientItem, NutritionResult
+
+from openai import APIError
+
+from app.models.api import (
+    ClassificationResult,
+    IngredientItem,
+    NutritionResult,
+    VALID_FOOD_CATEGORIES,
+)
 from app.exceptions import AppError
+from app.services.prompts import CLASSIFICATION_PROMPT, get_analysis_prompt
+from app.services._openai_client import get_openai_client
 
-# Lazy initialization - client created on first use
-_openai_client: Optional[AsyncOpenAI] = None
+logger = logging.getLogger(__name__)
 
 
-def get_openai_client() -> AsyncOpenAI:
+async def classify_food_image(
+    image_base64: Optional[str] = None,
+    description: Optional[str] = None,
+) -> ClassificationResult:
+    """Classify a food image into one of the six food categories.
+
+    Uses a low-detail, low-token GPT-4.1-mini call for efficiency.
+    Falls back to ``complex_meal`` on any failure.
     """
-    Get or create OpenAI client instance
-    Initializes on first call to ensure environment variables are loaded
+    if not image_base64:
+        logger.info("[classify] No image provided → text_only")
+        return ClassificationResult(category="text_only", hints={})
+
+    try:
+        client = get_openai_client()
+
+        image_data = image_base64
+        if "," in image_base64:
+            image_data = image_base64.split(",")[1]
+
+        user_content: list[dict[str, Any]] = [
+            {"type": "text", "text": CLASSIFICATION_PROMPT},
+        ]
+        if description:
+            user_content.append(
+                {"type": "text", "text": f"User description: {description}"}
+            )
+        user_content.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{image_data}",
+                    "detail": "low",
+                },
+            }
+        )
+
+        logger.info(
+            "[classify] Sending classification request (detail=low, max_tokens=200, description=%s)",
+            "yes" if description else "no",
+        )
+        t0 = time.monotonic()
+
+        response = await client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": user_content}],
+            response_format={"type": "json_object"},
+            max_tokens=200,
+        )
+
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        content = response.choices[0].message.content if response.choices else None
+        usage = response.usage
+
+        logger.info(
+            "[classify] Response received in %dms | tokens: prompt=%s completion=%s",
+            elapsed_ms,
+            usage.prompt_tokens if usage else "?",
+            usage.completion_tokens if usage else "?",
+        )
+        logger.info("[classify] Raw response: %s", content)
+
+        if not content:
+            logger.warning("[classify] Empty response → fallback to complex_meal")
+            return ClassificationResult(category="complex_meal", hints={})
+
+        parsed = json.loads(content)
+        raw_category = parsed.get("category", "")
+        category = raw_category if raw_category in VALID_FOOD_CATEGORIES else "complex_meal"
+
+        if raw_category != category:
+            logger.warning(
+                "[classify] Unrecognised category %r → remapped to complex_meal",
+                raw_category,
+            )
+
+        hints = parsed.get("hints", {})
+        if not isinstance(hints, dict):
+            hints = {}
+
+        logger.info("[classify] Result: category=%s hints=%s", category, hints)
+        return ClassificationResult(category=category, hints=hints)
+
+    except Exception as exc:
+        logger.error("[classify] Classification failed, falling back to complex_meal: %s", exc)
+        return ClassificationResult(category="complex_meal", hints={})
+
+
+def _compute_heuristic_confidence(
+    result: NutritionResult,
+    classification: ClassificationResult,
+) -> float:
+    """Adjust the model-reported confidence using heuristic cross-checks."""
+    model_confidence = result.confidence if result.confidence is not None else 0.7
+    logger.info("[confidence] Model-reported confidence: %s", model_confidence)
+
+    adjusted = model_confidence
+
+    if result.ingredients:
+        ing_carbs = sum(i.carbs for i in result.ingredients)
+        ing_fats = sum(i.fats for i in result.ingredients)
+        ing_proteins = sum(i.proteins for i in result.ingredients)
+
+        logger.info(
+            "[confidence] Macro cross-check — reported: carbs=%.1f fats=%.1f protein=%.1f | "
+            "ingredient sums: carbs=%.1f fats=%.1f protein=%.1f",
+            result.carbs, result.fats, result.protein,
+            ing_carbs, ing_fats, ing_proteins,
+        )
+
+        for macro_name, reported, summed in [
+            ("carbs", result.carbs, ing_carbs),
+            ("fats", result.fats, ing_fats),
+            ("protein", result.protein, ing_proteins),
+        ]:
+            if reported > 0 and abs(reported - summed) / reported > 0.20:
+                divergence = abs(reported - summed) / reported * 100
+                logger.warning(
+                    "[confidence] %s diverges %.0f%% (reported=%.1f vs sum=%.1f) → -0.2",
+                    macro_name, divergence, reported, summed,
+                )
+                adjusted -= 0.2
+                break
+
+    if classification.category == "packaged_product":
+        analysis_lower = (result.analysis or "").lower()
+        if any(
+            phrase in analysis_lower
+            for phrase in ["uncertain", "could not identify", "unable to identify", "not sure", "unknown product"]
+        ):
+            logger.warning("[confidence] Unidentified packaged product detected in analysis text → -0.3")
+            adjusted -= 0.3
+
+    final = max(0.0, min(1.0, adjusted))
+    logger.info("[confidence] Final confidence: %.2f (model=%.2f, adjusted by %.2f)", final, model_confidence, final - model_confidence)
+    return final
+
+
+def _extract_response_text(response: Any) -> str:
+    """Extract text content from a Responses API response.
+
+    The response.output list contains ``web_search_call`` items (search
+    metadata) and ``message`` items (the actual model response).  We
+    iterate over the output, find the first ``output_text`` block inside
+    a ``message`` item, and return its text.
     """
-    global _openai_client
-    
-    if _openai_client is None:
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise AppError(500, "OpenAI API key not configured")
-        
-        _openai_client = AsyncOpenAI(api_key=api_key)
-    
-    return _openai_client
+    for item in response.output:
+        if getattr(item, "type", None) == "message":
+            for block in item.content:
+                if getattr(block, "type", None) == "output_text":
+                    return block.text
+    raise AppError(500, "No text content in Responses API response")
+
+
+def _extract_json_from_text(text: str) -> str:
+    """Pull the JSON object out of free-text that may contain markdown fences."""
+    import re
+
+    fenced = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+    if fenced:
+        return fenced.group(1).strip()
+
+    brace_start = text.find("{")
+    brace_end = text.rfind("}")
+    if brace_start != -1 and brace_end > brace_start:
+        return text[brace_start : brace_end + 1]
+
+    return text.strip()
+
+
+async def _analyze_with_web_search(
+    client: Any,
+    image_data: str,
+    prompt_text: str,
+) -> str:
+    """Run analysis via the Responses API with the ``web_search`` tool.
+
+    Used for ``packaged_product`` so the model can look up real nutrition
+    data online instead of guessing.  Returns the raw JSON text.
+
+    Note: web_search is incompatible with JSON mode, so we rely on the
+    prompt to enforce JSON output and extract it from free text.
+    """
+    input_content: list[dict[str, Any]] = [
+        {"type": "input_text", "text": prompt_text},
+        {
+            "type": "input_image",
+            "image_url": f"data:image/jpeg;base64,{image_data}",
+        },
+    ]
+
+    logger.info("[web_search] Sending Responses API request with web_search tool…")
+    t0 = time.monotonic()
+
+    response = await client.responses.create(
+        model="gpt-4.1",
+        input=[{"role": "user", "content": input_content}],
+        tools=[{"type": "web_search"}],
+    )
+
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    logger.info("[web_search] Response received in %dms", elapsed_ms)
+
+    raw_text = _extract_response_text(response)
+    logger.info("[web_search] Raw text: %s", raw_text)
+
+    json_text = _extract_json_from_text(raw_text)
+    logger.info("[web_search] Extracted JSON: %s", json_text)
+    return json_text
 
 
 async def analyze_food_image(
     image_base64: str,
-    description: Optional[str] = None
+    description: Optional[str] = None,
 ) -> NutritionResult:
-    """
-    Analyzes a food image and returns nutrition data
-    
-    Args:
-        image_base64: Base64 encoded image string (with or without data URL prefix)
-        description: Optional text description of the food
-        
-    Returns:
-        NutritionResult with carbs, protein, fats, calories, and analysis
-        
-    Raises:
-        AppError: For various error conditions (API failures, timeouts, etc.)
-    """
+    """Classify and then analyse a food image with category-specific prompting."""
+    pipeline_t0 = time.monotonic()
+    logger.info(
+        "===== [pipeline] Starting food analysis (image=%d chars, description=%s) =====",
+        len(image_base64),
+        repr(description[:80]) if description else "none",
+    )
+
     try:
-        # Get client (initializes on first call, after env vars are loaded)
         client = get_openai_client()
-        
-        # Format image data for OpenAI API
-        # Remove data URL prefix if present (data:image/jpeg;base64,)
+
         image_data = image_base64
         if "," in image_base64:
             image_data = image_base64.split(",")[1]
-        
-        def build_prompt(force_strict_json: bool) -> str:
-            prompt = "Analyze this food image and provide nutritional information.\n\n"
-            prompt += "Return ONLY a JSON object with this exact shape:\n"
-            prompt += (
-                '{ "carbs": number, "protein": number, "fats": number, "calories": number, '
-                '"analysis": string, "logName": string, '
-                '"ingredients": [{"id": string, "name": string, "quantity": string, '
-                '"carbs": number, "fats": number, "proteins": number, "unit"?: string, '
-                '"preparation"?: string, "note"?: string}], "mealNotes"?: string }\n\n'
-            )
-            prompt += "Requirements:\n"
-            prompt += "- `ingredients` MUST include one item per identified ingredient/component\n"
-            prompt += "- Every ingredient MUST include non-empty `name` and `quantity`\n"
-            prompt += "- Every ingredient MUST include numeric `carbs`, `fats`, and `proteins` in grams (>= 0)\n"
-            prompt += "- `logName` MUST be a short, human-friendly title for this meal log (2-6 words)\n"
-            prompt += "- Use concise strings for `quantity` (examples: \"120 g\", \"1 tbsp\", \"to taste\")\n"
-            prompt += "- `analysis` should be brief and useful\n"
-            prompt += "- Do not include markdown, code fences, or extra keys\n\n"
 
-            if description:
-                prompt += f"Additional context: {description}\n\n"
-            if force_strict_json:
-                prompt += "Previous response was invalid. Respond with valid JSON only."
-            return prompt
+        # --- Step 1: Classify ---
+        classification = await classify_food_image(image_base64, description)
+
+        # --- Step 2: Build category-specific prompt ---
+        prompt_text, max_tokens = get_analysis_prompt(
+            classification.category, description, classification.hints
+        )
+        logger.info(
+            "[analyze] Branch selected: category=%s | max_tokens=%d | prompt length=%d chars",
+            classification.category, max_tokens, len(prompt_text),
+        )
 
         async def make_request(force_strict_json: bool) -> str:
-            response = await client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
+            text = prompt_text
+            if force_strict_json:
+                text += "\nPrevious response was invalid. Respond with valid JSON only."
+
+            user_content: list[dict[str, Any]] = [
+                {"type": "text", "text": text},
+            ]
+            if classification.category != "text_only":
+                user_content.append(
                     {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": build_prompt(force_strict_json),
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image_data}",
-                                },
-                            },
-                        ],
-                    },
-                ],
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{image_data}",
+                        },
+                    }
+                )
+
+            logger.info("[analyze] Sending analysis request (attempt=%s)...", "retry" if force_strict_json else "first")
+            t0 = time.monotonic()
+
+            response = await client.chat.completions.create(
+                model="gpt-4.1",
+                messages=[{"role": "user", "content": user_content}],
                 response_format={"type": "json_object"},
-                max_tokens=700,
+                max_tokens=max_tokens,
             )
+
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
             content = response.choices[0].message.content if response.choices else None
+            usage = response.usage
+
+            logger.info(
+                "[analyze] Response received in %dms | tokens: prompt=%s completion=%s",
+                elapsed_ms,
+                usage.prompt_tokens if usage else "?",
+                usage.completion_tokens if usage else "?",
+            )
+            logger.info("[analyze] Raw response: %s", content)
+
             if not content:
                 raise AppError(500, "No response from AI service")
             return content
@@ -123,62 +321,104 @@ async def analyze_food_image(
         parsed_response: dict[str, Any] = {}
         result: Optional[NutritionResult] = None
 
-        for attempt in range(2):
-            content = await make_request(attempt > 0)
-            parsed_response = parse_response_content(content)
+        # --- Step 3a: Packaged products → Responses API with web search ---
+        if classification.category == "packaged_product":
             try:
+                ws_content = await _analyze_with_web_search(
+                    client, image_data, prompt_text
+                )
+                parsed_response = parse_response_content(ws_content)
                 result = NutritionResult(**parsed_response)
-                break
-            except Exception as validation_error:
-                print(f"OpenAI response validation failed (attempt {attempt + 1}): {validation_error}")
+                logger.info("[analyze] Web search analysis succeeded")
+            except Exception as ws_err:
+                logger.warning(
+                    "[analyze] Web search path failed (%s), falling back to Chat Completions",
+                    ws_err,
+                )
+                result = None
+
+        # --- Step 3b: Regular Chat Completions (all others, or ws fallback) ---
+        if result is None:
+            for attempt in range(2):
+                content = await make_request(attempt > 0)
+                parsed_response = parse_response_content(content)
+                try:
+                    result = NutritionResult(**parsed_response)
+                    logger.info("[analyze] Validation passed on attempt %d", attempt + 1)
+                    break
+                except Exception as validation_error:
+                    logger.warning(
+                        "[analyze] Validation failed (attempt %d): %s",
+                        attempt + 1, validation_error,
+                    )
 
         if result is None:
+            logger.warning("[analyze] All attempts failed validation → using normalize_fallback")
             result = normalize_fallback(parsed_response, description)
 
         if not result.analysis or not result.analysis.strip():
             result.analysis = "Food analysis completed."
         if not result.logName or not result.logName.strip():
-            result.logName = description.strip() if description and description.strip() else "Meal"
+            result.logName = (
+                description.strip() if description and description.strip() else "Meal"
+            )
 
         result.ingredients = normalize_ingredients(result.ingredients, description)
+        result.foodCategory = classification.category
+        result.confidence = _compute_heuristic_confidence(result, classification)
+
+        total_ms = int((time.monotonic() - pipeline_t0) * 1000)
+        logger.info(
+            "===== [pipeline] Complete in %dms | category=%s confidence=%.2f | "
+            "logName=%r calories=%.0f ingredients=%d =====",
+            total_ms,
+            result.foodCategory,
+            result.confidence,
+            result.logName,
+            result.calories,
+            len(result.ingredients),
+        )
+
         return result
-        
+
     except APIError as e:
-        # Handle OpenAI API errors
         if e.status_code == 401:
-            print("OpenAI API authentication error")
+            logger.error("[pipeline] OpenAI authentication error")
             raise AppError(500, "Authentication failed")
         elif e.status_code == 429:
-            print("OpenAI API rate limit error")
+            logger.error("[pipeline] OpenAI rate limit exceeded")
             raise AppError(503, "Service temporarily unavailable")
         else:
-            print(f"OpenAI API error: {e.message}")
+            logger.error("[pipeline] OpenAI API error: %s", e.message)
             raise AppError(503, "Service temporarily unavailable")
-    
+
     except TimeoutError:
-        print("OpenAI API timeout")
+        logger.error("[pipeline] OpenAI API timeout")
         raise AppError(503, "Request timed out")
-    
+
     except Exception as e:
-        # Handle network errors and other exceptions
         if isinstance(e, AppError):
             raise
-        
+
         error_msg = str(e).lower()
         if "timeout" in error_msg or "timed out" in error_msg:
-            print("OpenAI API timeout")
+            logger.error("[pipeline] Timeout: %s", e)
             raise AppError(503, "Request timed out")
-        elif "network" in error_msg or "connection" in error_msg or "econnrefused" in error_msg:
-            print(f"OpenAI API network error: {e}")
+        elif (
+            "network" in error_msg
+            or "connection" in error_msg
+            or "econnrefused" in error_msg
+        ):
+            logger.error("[pipeline] Network error: %s", e)
             raise AppError(503, "Service temporarily unavailable")
         else:
-            print(f"Unknown error in analyze_food_image: {e}")
+            logger.error("[pipeline] Unknown error: %s", e, exc_info=True)
             raise AppError(500, "Failed to analyze food image")
 
 
 def normalize_ingredients(
     raw: Any,
-    description: Optional[str] = None
+    description: Optional[str] = None,
 ) -> list[IngredientItem]:
     if isinstance(raw, list):
         normalized: list[IngredientItem] = []
@@ -206,24 +446,43 @@ def normalize_ingredients(
 
             normalized.append(
                 IngredientItem(
-                    id=item["id"] if isinstance(item.get("id"), str) and item["id"].strip() else f"ingredient-{index}",
+                    id=(
+                        item["id"]
+                        if isinstance(item.get("id"), str) and item["id"].strip()
+                        else f"ingredient-{index}"
+                    ),
                     name=name.strip(),
                     quantity=quantity.strip(),
                     carbs=float(carbs),
                     fats=float(fats),
                     proteins=float(proteins),
-                    unit=item.get("unit").strip() if isinstance(item.get("unit"), str) and item.get("unit").strip() else None,
-                    preparation=item.get("preparation").strip()
-                    if isinstance(item.get("preparation"), str) and item.get("preparation").strip()
-                    else None,
-                    note=item.get("note").strip() if isinstance(item.get("note"), str) and item.get("note").strip() else None,
+                    unit=(
+                        item.get("unit").strip()
+                        if isinstance(item.get("unit"), str) and item.get("unit").strip()
+                        else None
+                    ),
+                    preparation=(
+                        item.get("preparation").strip()
+                        if isinstance(item.get("preparation"), str)
+                        and item.get("preparation").strip()
+                        else None
+                    ),
+                    note=(
+                        item.get("note").strip()
+                        if isinstance(item.get("note"), str) and item.get("note").strip()
+                        else None
+                    ),
                 )
             )
 
         if normalized:
             return normalized
 
-    fallback_name = description.strip() if isinstance(description, str) and description.strip() else "Meal"
+    fallback_name = (
+        description.strip()
+        if isinstance(description, str) and description.strip()
+        else "Meal"
+    )
     return [
         IngredientItem(
             id="ingredient-fallback",
@@ -238,22 +497,53 @@ def normalize_ingredients(
 
 def normalize_fallback(
     parsed_response: dict[str, Any],
-    description: Optional[str]
+    description: Optional[str],
 ) -> NutritionResult:
-    fallback_ingredients = normalize_ingredients(parsed_response.get("ingredients"), description)
+    fallback_ingredients = normalize_ingredients(
+        parsed_response.get("ingredients"), description
+    )
     return NutritionResult(
-        carbs=float(parsed_response["carbs"]) if isinstance(parsed_response.get("carbs"), (int, float)) else 0,
-        protein=float(parsed_response["protein"]) if isinstance(parsed_response.get("protein"), (int, float)) else 0,
-        fats=float(parsed_response["fats"]) if isinstance(parsed_response.get("fats"), (int, float)) else 0,
-        calories=float(parsed_response["calories"]) if isinstance(parsed_response.get("calories"), (int, float)) else 0,
-        analysis=parsed_response["analysis"].strip()
-        if isinstance(parsed_response.get("analysis"), str) and parsed_response["analysis"].strip()
-        else "Unable to analyze food image.",
-        logName=parsed_response["logName"].strip()
-        if isinstance(parsed_response.get("logName"), str) and parsed_response["logName"].strip()
-        else (description.strip() if isinstance(description, str) and description.strip() else "Meal"),
+        carbs=(
+            float(parsed_response["carbs"])
+            if isinstance(parsed_response.get("carbs"), (int, float))
+            else 0
+        ),
+        protein=(
+            float(parsed_response["protein"])
+            if isinstance(parsed_response.get("protein"), (int, float))
+            else 0
+        ),
+        fats=(
+            float(parsed_response["fats"])
+            if isinstance(parsed_response.get("fats"), (int, float))
+            else 0
+        ),
+        calories=(
+            float(parsed_response["calories"])
+            if isinstance(parsed_response.get("calories"), (int, float))
+            else 0
+        ),
+        analysis=(
+            parsed_response["analysis"].strip()
+            if isinstance(parsed_response.get("analysis"), str)
+            and parsed_response["analysis"].strip()
+            else "Unable to analyze food image."
+        ),
+        logName=(
+            parsed_response["logName"].strip()
+            if isinstance(parsed_response.get("logName"), str)
+            and parsed_response["logName"].strip()
+            else (
+                description.strip()
+                if isinstance(description, str) and description.strip()
+                else "Meal"
+            )
+        ),
         ingredients=fallback_ingredients,
-        mealNotes=parsed_response["mealNotes"].strip()
-        if isinstance(parsed_response.get("mealNotes"), str) and parsed_response["mealNotes"].strip()
-        else None,
+        mealNotes=(
+            parsed_response["mealNotes"].strip()
+            if isinstance(parsed_response.get("mealNotes"), str)
+            and parsed_response["mealNotes"].strip()
+            else None
+        ),
     )

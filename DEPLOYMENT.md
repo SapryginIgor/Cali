@@ -133,6 +133,45 @@ Or set in `app.json` (if using Expo config):
 
 ---
 
+## Supabase (user profiles and auth)
+
+The app can use [Supabase](https://supabase.com) for email/password sign-in and a `profiles` table (display name, avatar URL). Meal logs stay in local storage unless you add sync later.
+
+### 1. Create a Supabase project
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. Open **Project Settings → API** and copy the **Project URL** and **anon public** key.
+
+### 2. Apply the database migration
+
+1. In the Supabase dashboard, open **SQL Editor**.
+2. Paste and run the full contents of [`supabase/migrations/20260322120000_profiles.sql`](supabase/migrations/20260322120000_profiles.sql) in this repository.
+
+This creates the `profiles` table, row-level security policies, and a trigger that inserts a profile row when a new user signs up.
+
+### 3. Enable email auth
+
+In **Authentication → Providers**, ensure **Email** is enabled (default). Adjust **Confirm email** if you want immediate sign-in without verifying the inbox.
+
+### 4. Frontend environment variables
+
+Add to the project root `.env` (same file as `EXPO_PUBLIC_BACKEND_URL`):
+
+```env
+EXPO_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
+```
+
+Restart Expo (`npm start`) after changing `.env`.
+
+If these variables are missing, the **Profile** screen explains that Supabase is not configured; the rest of the app still runs (guest mode).
+
+### 5. Optional: deep links and OAuth
+
+The app uses the scheme `cali` (see `app.json`). For magic links or OAuth later, add the correct redirect URLs under **Authentication → URL Configuration** in Supabase.
+
+---
+
 ## Testing Deployment
 
 ### 1. Test Backend Directly
@@ -198,6 +237,9 @@ RATE_LIMIT_MAX_REQUESTS=20
 EXPO_PUBLIC_BACKEND_URL=https://your-backend-url.com
 # For production web / expo-router origin (optional; defaults to https://localhost:8081)
 EXPO_PUBLIC_APP_ORIGIN=https://your-app-domain.com
+# Supabase (user profiles — optional; see "Supabase" section above)
+EXPO_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
 ```
 
 ---

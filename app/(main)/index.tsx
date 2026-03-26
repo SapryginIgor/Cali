@@ -1,6 +1,19 @@
 import { generateObject } from "@/lib/ai";
+import { useRouter } from "expo-router";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
-import { Camera, ImagePlus, Pencil, Plus, Sparkles, Trash2 } from "lucide-react-native";
+import {
+  ArrowUp,
+  Camera,
+  ImagePlus,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  Trash2,
+  User,
+  X,
+} from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AppState,
@@ -13,12 +26,18 @@ import {
   FlatList,
   Modal,
   Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  TouchableWithoutFeedback,
   useWindowDimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { z } from "zod";
+import TrialBanner from "@/components/TrialBanner";
 import Colors from "@/constants/colors";
+import { useSubscription } from "@/contexts/SubscriptionContext";
 import { FoodEntry, IngredientItem } from "@/constants/types";
 import { useApp } from "@/contexts/AppContext";
 import { Image } from "expo-image";
@@ -96,8 +115,7 @@ const buildCalendarWeeks = (centerDate: Date, weeksBefore: number, weeksAfter: n
 
 const formatCalendarWeekday = (date: Date) =>
   date
-    .toLocaleDateString("ru-RU", { weekday: "short" })
-    .replace(".", "")
+    .toLocaleDateString("en-US", { weekday: "short" })
     .slice(0, 2)
     .toUpperCase();
 
@@ -206,7 +224,9 @@ const CalendarCarousel = memo(
 );
 
 export default function TodayScreen() {
+  const router = useRouter();
   const { width: screenWidth } = useWindowDimensions();
+  const safeInsets = useSafeAreaInsets();
   const {
     entries,
     addFoodEntry,
@@ -215,6 +235,7 @@ export default function TodayScreen() {
     getEntriesByDate,
     getTotalsByDate,
   } = useApp();
+  const { isPremium, presentPaywall } = useSubscription();
   const todayDate = useMemo(() => normalizeDate(new Date()), []);
   const [modalVisible, setModalVisible] = useState(false);
   const [inputText, setInputText] = useState("");
@@ -237,6 +258,9 @@ export default function TodayScreen() {
   const displayedEntries = getEntriesByDate(selectedDate);
   const totals = getTotalsByDate(selectedDate);
   const pendingEntryIdsRef = useRef<Set<string>>(new Set());
+  const cameraRef = useRef<CameraView>(null);
+  const [cameraFacing, setCameraFacing] = useState<"front" | "back">("back");
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const isE2EMode = process.env.EXPO_PUBLIC_E2E === "1";
 
   const getAnalysisMessages = useCallback((description: string, imageUri?: string) => {
@@ -332,38 +356,49 @@ export default function TodayScreen() {
     }
   }, [entries, getAnalysisMessages, updateFoodEntry]);
 
-  const handleOpenLogMeal = useCallback(() => {
+  const handleOpenLogMeal = useCallback(async () => {
+    if (!isPremium) {
+      presentPaywall();
+      return;
+    }
     setInputText("");
     setSelectedImage(null);
+    if (isE2EMode) {
+      setSelectedImage(
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/w8AAgMBgJ7n6fQAAAAASUVORK5CYII="
+      );
+      setModalVisible(true);
+      return;
+    }
+    if (!cameraPermission?.granted) {
+      const { granted } = await requestCameraPermission();
+      if (!granted) {
+        Alert.alert("Permission needed", "Camera access is required to take photos");
+        return;
+      }
+    }
     setModalVisible(true);
+  }, [isPremium, presentPaywall, isE2EMode, cameraPermission, requestCameraPermission]);
+
+  const handleCapture = useCallback(async () => {
+    if (!cameraRef.current) return;
+    try {
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
+      if (photo) {
+        setSelectedImage(photo.uri);
+      }
+    } catch (error) {
+      console.error("Failed to capture photo:", error);
+    }
   }, []);
 
-  const handleUseE2ETestImage = useCallback(() => {
-    if (!isE2EMode) {
-      return;
-    }
-    setSelectedImage(
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/w8AAgMBgJ7n6fQAAAAASUVORK5CYII="
-    );
-  }, [isE2EMode]);
+  const handleRetake = useCallback(() => {
+    setSelectedImage(null);
+  }, []);
 
-  const handleCamera = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Permission needed", "Camera access is required to take photos");
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images"],
-      allowsEditing: false,
-      quality: 1,
-    });
-
-    if (!result.canceled) {
-      setSelectedImage(result.assets[0].uri);
-    }
-  };
+  const handleFlipCamera = useCallback(() => {
+    setCameraFacing((prev) => (prev === "back" ? "front" : "back"));
+  }, []);
 
   const handleGallery = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -371,13 +406,11 @@ export default function TodayScreen() {
       Alert.alert("Permission needed", "Gallery access is required to select photos");
       return;
     }
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       allowsEditing: false,
       quality: 1,
     });
-
     if (!result.canceled) {
       setSelectedImage(result.assets[0].uri);
     }
@@ -450,13 +483,6 @@ export default function TodayScreen() {
       hour12: true,
     });
   };
-
-  const formatHeaderDate = (date: Date) =>
-    date.toLocaleDateString("ru-RU", {
-      weekday: "long",
-      month: "short",
-      day: "numeric",
-    });
 
   const handleSelectCalendarDay = useCallback((date: Date) => {
     const normalizedDate = normalizeDate(date);
@@ -610,19 +636,20 @@ export default function TodayScreen() {
         style={StyleSheet.absoluteFill}
       />
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
-        {/* Modern Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.headerTitle}>Today</Text>
-            <Text style={styles.headerDate}>{formatHeaderDate(selectedDate)}</Text>
-          </View>
-          <View style={styles.headerBadge}>
-            <Sparkles size={16} color={Colors.light.accent1} />
-            <Text style={styles.headerBadgeText}>AI Powered</Text>
-          </View>
-        </View>
-
+        <TrialBanner />
         <View style={styles.calendarContainer}>
+          <View style={styles.calendarTopRow}>
+            <View style={styles.calendarTopRowSpacer} />
+            <TouchableOpacity
+              onPress={() => router.push("/(main)/profile" as never)}
+              style={styles.headerProfileButton}
+              accessibilityRole="button"
+              accessibilityLabel="Profile"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <User size={24} color={Colors.light.text} />
+            </TouchableOpacity>
+          </View>
           <CalendarCarousel
             calendarWeeks={calendarWeeks}
             selectedDate={selectedDate}
@@ -1007,123 +1034,132 @@ export default function TodayScreen() {
         </SafeAreaView>
       </Modal>
 
-      {/* Enhanced Modal */}
       <Modal
         visible={modalVisible}
         animationType="slide"
-        presentationStyle="pageSheet"
+        presentationStyle="fullScreen"
         onRequestClose={() => {
           setModalVisible(false);
           setInputText("");
           setSelectedImage(null);
         }}
       >
-        <SafeAreaView style={styles.modalContainer}>
-          <LinearGradient
-            colors={["#FFFFFF", "#F8FAFF"]}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.modalHeader}>
-            <TouchableOpacity
-              onPress={() => {
-                setModalVisible(false);
-                setInputText("");
-                setSelectedImage(null);
-              }}
-            >
-              <Text style={styles.modalCancel}>Cancel</Text>
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>Log Meal</Text>
-            <TouchableOpacity
-              onPress={handleSubmit}
-              disabled={isSubmitting || !selectedImage}
-              accessibilityRole="button"
-              accessibilityLabel="Confirm log meal"
-            >
-              <Text
-                style={[
-                  styles.modalDone,
-                  (isSubmitting || !selectedImage) && styles.modalDoneDisabled,
-                ]}
-              >
-                {isSubmitting ? "..." : "Done"}
-              </Text>
-            </TouchableOpacity>
-          </View>
+        <View style={styles.confirmContainer}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.confirmImageArea}>
+            {selectedImage ? (
+              <Image
+                source={{ uri: selectedImage }}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+              />
+            ) : (
+              <CameraView
+                ref={cameraRef}
+                style={StyleSheet.absoluteFill}
+                facing={cameraFacing}
+              />
+            )}
 
-          <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
-            {selectedImage && (
-              <View style={styles.imagePreviewContainer}>
-                <Image source={{ uri: selectedImage }} style={styles.imagePreview} />
+            <View style={[styles.confirmTopBar, { paddingTop: safeInsets.top + 12 }]}>
+              <View style={styles.cameraTopRow}>
                 <TouchableOpacity
-                  style={styles.removeImageButton}
-                  onPress={() => setSelectedImage(null)}
+                  style={styles.confirmCloseButton}
+                  onPress={() => {
+                    setModalVisible(false);
+                    setInputText("");
+                    setSelectedImage(null);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel"
                 >
-                  <Text style={styles.removeImageText}>✕</Text>
+                  <X color="#FFFFFF" size={24} />
+                </TouchableOpacity>
+                {!selectedImage && (
+                  <TouchableOpacity
+                    style={styles.confirmCloseButton}
+                    onPress={handleFlipCamera}
+                    accessibilityRole="button"
+                    accessibilityLabel="Flip camera"
+                  >
+                    <RefreshCw color="#FFFFFF" size={20} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+
+            {!selectedImage && (
+              <View style={styles.shutterContainer}>
+                <TouchableOpacity
+                  style={styles.shutterButton}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    handleCapture();
+                  }}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel="Take photo"
+                >
+                  <View style={styles.shutterInner} />
                 </TouchableOpacity>
               </View>
             )}
+          </View>
+          </TouchableWithoutFeedback>
 
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Add details (optional)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Describe your meal..."
-                placeholderTextColor={Colors.light.secondaryText}
-                value={inputText}
-                onChangeText={setInputText}
-                multiline
-                maxLength={200}
-                editable={!isSubmitting}
-              />
-            </View>
-
-            <View style={styles.photoButtons}>
-              <TouchableOpacity
-                style={[styles.photoButton, styles.photoButtonLeft]}
-                onPress={handleCamera}
-                disabled={isSubmitting}
-              >
-                <LinearGradient
-                  colors={[Colors.light.lightBlue, "#FFFFFF"]}
-                  style={styles.photoButtonGradient}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.captionBarWrapper}
+          >
+            <SafeAreaView edges={["bottom"]} style={styles.captionBarSafe}>
+              <View style={styles.captionBar}>
+                {selectedImage && (
+                  <TouchableOpacity
+                    style={styles.captionBarAction}
+                    onPress={handleRetake}
+                    disabled={isSubmitting}
+                    accessibilityRole="button"
+                    accessibilityLabel="Retake photo"
+                  >
+                    <Camera color="#FFFFFF" size={20} />
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={styles.captionBarAction}
+                  onPress={handleGallery}
+                  disabled={isSubmitting}
+                  accessibilityRole="button"
+                  accessibilityLabel="Choose from gallery"
                 >
-                  <Camera color={Colors.light.tint} size={24} />
-                  <Text style={styles.photoButtonText} numberOfLines={1}>
-                    {selectedImage ? "Retake Photo" : "Take Photo"}
-                  </Text>
-                </LinearGradient>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.photoButton}
-                onPress={handleGallery}
-                disabled={isSubmitting}
-              >
-                <LinearGradient
-                  colors={[Colors.light.lightBlue, "#FFFFFF"]}
-                  style={styles.photoButtonGradient}
-                >
-                  <ImagePlus color={Colors.light.tint} size={24} />
-                  <Text style={styles.photoButtonText} numberOfLines={1}>
-                    Choose from Gallery
-                  </Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-
-            {isE2EMode && !selectedImage && (
-              <TouchableOpacity
-                style={styles.e2eImageButton}
-                onPress={handleUseE2ETestImage}
-                accessibilityRole="button"
-                accessibilityLabel="Use test image"
-              >
-                <Text style={styles.e2eImageButtonText}>Use test image</Text>
-              </TouchableOpacity>
-            )}
-          </ScrollView>
-        </SafeAreaView>
+                  <ImagePlus color="#FFFFFF" size={20} />
+                </TouchableOpacity>
+                <TextInput
+                  style={styles.captionInput}
+                  placeholder="Add a caption..."
+                  placeholderTextColor="rgba(255, 255, 255, 0.45)"
+                  value={inputText}
+                  onChangeText={setInputText}
+                  multiline
+                  maxLength={200}
+                  editable={!isSubmitting}
+                />
+                {selectedImage ? (
+                  <TouchableOpacity
+                    style={[styles.sendButton, isSubmitting && styles.sendButtonDisabled]}
+                    onPress={handleSubmit}
+                    disabled={isSubmitting}
+                    accessibilityRole="button"
+                    accessibilityLabel="Confirm log meal"
+                  >
+                    <ArrowUp color="#FFFFFF" size={22} strokeWidth={3} />
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.sendButtonPlaceholder} />
+                )}
+              </View>
+            </SafeAreaView>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
     </View>
   );
@@ -1136,42 +1172,18 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    paddingHorizontal: 24,
-    paddingTop: 12,
-    paddingBottom: 14,
-  },
-  headerTitle: {
-    fontSize: 36,
-    fontWeight: "800" as const,
-    color: Colors.light.text,
-    marginBottom: 4,
-    letterSpacing: -1,
-  },
-  headerDate: {
-    fontSize: 16,
-    color: Colors.light.secondaryText,
-    fontWeight: "500" as const,
-    textTransform: "capitalize" as const,
-  },
-  headerBadge: {
+  calendarTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    backgroundColor: Colors.light.lightBlue,
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: `${Colors.light.accent1}20`,
+    marginBottom: 10,
   },
-  headerBadgeText: {
-    fontSize: 12,
-    fontWeight: "600" as const,
-    color: Colors.light.accent1,
+  calendarTopRowSpacer: {
+    flex: 1,
+  },
+  headerProfileButton: {
+    padding: 6,
+    marginRight: 18,
   },
   content: {
     flex: 1,
@@ -1666,37 +1678,58 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
   },
-  imagePreviewContainer: {
+  confirmContainer: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  confirmImageArea: {
+    flex: 1,
     position: "relative",
-    marginBottom: 24,
-    borderRadius: 20,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
   },
-  imagePreview: {
-    width: "100%",
-    height: 280,
-    backgroundColor: Colors.light.border,
-  },
-  removeImageButton: {
+  confirmTopBar: {
     position: "absolute",
-    top: 16,
-    right: 16,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1,
+  },
+  cameraTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  confirmCloseButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
     alignItems: "center",
     justifyContent: "center",
   },
-  removeImageText: {
-    color: "#FFFFFF",
-    fontSize: 20,
-    fontWeight: "600" as const,
+  shutterContainer: {
+    position: "absolute",
+    bottom: 12,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  shutterButton: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 4,
+    borderColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "transparent",
+  },
+  shutterInner: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: "#FFFFFF",
   },
   inputContainer: {
     marginBottom: 24,
@@ -1798,48 +1831,52 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.light.border,
   },
-  photoButtons: {
+  captionBarWrapper: {
+    backgroundColor: "#1A1A1A",
+  },
+  captionBarSafe: {
+    backgroundColor: "#1A1A1A",
+  },
+  captionBar: {
     flexDirection: "row",
-    marginBottom: 24,
+    alignItems: "flex-end",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255, 255, 255, 0.1)",
   },
-  photoButton: {
-    flex: 1,
-    minWidth: 0,
-    borderRadius: 16,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: Colors.light.border,
-  },
-  photoButtonLeft: {
-    marginRight: 12,
-  },
-  photoButtonGradient: {
-    flexDirection: "row",
+  captionBarAction: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 16,
   },
-  photoButtonText: {
-    fontSize: 14,
-    fontWeight: "600" as const,
-    color: Colors.light.text,
-    flexShrink: 1,
+  captionInput: {
+    flex: 1,
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: "#FFFFFF",
+    maxHeight: 100,
   },
-  e2eImageButton: {
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: Colors.light.border,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+  sendButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: Colors.light.tint,
     alignItems: "center",
-    backgroundColor: Colors.light.cardBackground,
+    justifyContent: "center",
   },
-  e2eImageButtonText: {
-    fontSize: 14,
-    fontWeight: "700" as const,
-    color: Colors.light.tint,
+  sendButtonDisabled: {
+    opacity: 0.5,
+  },
+  sendButtonPlaceholder: {
+    width: 38,
+    height: 38,
   },
 });

@@ -1,3 +1,15 @@
+export type SubscriptionStatus = "trialing" | "trial_expired" | "premium" | "cancelled";
+
+export interface Profile {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  updated_at: string;
+  subscription_status: SubscriptionStatus;
+  trial_started_at: string;
+  trial_ends_at: string;
+}
+
 export interface IngredientItem {
   id: string;
   name: string;
@@ -27,4 +39,6 @@ export interface FoodEntry {
     calories: number;
   };
   aiAnalysis?: string;
+  confidence?: number;
+  foodCategory?: string;
 }

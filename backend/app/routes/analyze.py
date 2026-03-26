@@ -6,14 +6,17 @@ Handles POST /api/analyze-food with image uploads (base64 or multipart)
 import asyncio
 import time
 import uuid
-from fastapi import APIRouter, Request
-from typing import Optional
+from typing import Annotated, Optional
+
+from fastapi import APIRouter, Depends, Request
+
+from app.exceptions import AppError
+from app.middleware.auth import require_active_subscription
+from app.middleware.rate_limiter import limiter, RATE_LIMIT_STR
 from app.models.requests import AnalyzeFoodRequest
 from app.models.responses import AnalyzeFoodResponse, AsyncLogResponse
 from app.services.openai import analyze_food_image
-from app.middleware.rate_limiter import limiter, RATE_LIMIT_STR
 from app.utils.image import upload_file_to_base64, validate_base64_image_format
-from app.exceptions import AppError
 
 router = APIRouter()
 _log_store: dict[str, dict] = {}
@@ -88,7 +91,8 @@ async def _run_async_analysis(log_id: str, image_base64: str, description: Optio
 @router.post("/api/analyze-food", response_model=AnalyzeFoodResponse)
 @limiter.limit(RATE_LIMIT_STR)
 async def analyze_food(
-    request: Request
+    request: Request,
+    _user_id: Annotated[str, Depends(require_active_subscription)],
 ) -> AnalyzeFoodResponse:
     """
     Analyze food image from base64 JSON or multipart form data
@@ -104,7 +108,8 @@ async def analyze_food(
 @router.post("/api/logs", response_model=AsyncLogResponse)
 @limiter.limit(RATE_LIMIT_STR)
 async def create_log(
-    request: Request
+    request: Request,
+    _user_id: Annotated[str, Depends(require_active_subscription)],
 ) -> AsyncLogResponse:
     image_base64, desc, idempotency_key = await _parse_input_payload(request)
 
