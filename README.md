@@ -1,5 +1,7 @@
 # Cali - AI Meal Logging App
 
+![Cali Logo](assets/images/logo.svg)
+
 Cali is a mobile-first food logging app that lets users quickly log meals from photos, review detected ingredients/macros, and track nutrition over time.
 
 ## What the app does
@@ -15,10 +17,6 @@ Cali is a mobile-first food logging app that lets users quickly log meals from p
 ### Meal card example
 
 ![Cali Caesar Example](assets/images/caesar.jpg)
-
-### Branding
-
-![Cali Logo](assets/images/logo.svg)
 
 ## Tech stack
 
