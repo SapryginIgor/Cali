@@ -5,13 +5,17 @@ FastAPI application entry point
 import os
 import logging
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from dotenv import load_dotenv
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 from app.routes.analyze import router as analyze_router
+from app.routes.images import router as images_router
 from app.middleware.error_handler import (
     app_error_handler,
     validation_error_handler,
@@ -22,9 +26,6 @@ from app.middleware.rate_limiter import limiter
 from app.exceptions import AppError
 from fastapi.exceptions import RequestValidationError
 from openai import APIError
-
-# Load environment variables
-load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -90,6 +91,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Include routers
 app.include_router(analyze_router)
+app.include_router(images_router)
 
 
 @app.get("/")

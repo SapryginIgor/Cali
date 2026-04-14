@@ -9,10 +9,8 @@ test("pending log transitions to completed in the client", async ({ page }) => {
   const initialPendingCount = await page.getByText("Pending").count();
   const initialAnalyzingCount = await page.getByText("Analyzing meal...").count();
 
+  await page.getByPlaceholder("What did you eat?").fill("E2E salmon bowl");
   await page.getByLabel("Log meal").click();
-  await page.getByLabel("Use test image").click();
-  await page.getByPlaceholder("Describe your meal...").fill("E2E salmon bowl");
-  await page.getByLabel("Confirm log meal").click();
 
   await expect.poll(async () => page.getByText("Pending").count()).toBeGreaterThan(initialPendingCount);
   await expect

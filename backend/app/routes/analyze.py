@@ -13,9 +13,10 @@ from fastapi import APIRouter, Depends, Request
 from app.exceptions import AppError
 from app.middleware.auth import require_active_subscription
 from app.middleware.rate_limiter import limiter, RATE_LIMIT_STR
-from app.models.requests import AnalyzeFoodRequest
+from app.models.requests import AnalyzeFoodRequest, EditLogRequest
 from app.models.responses import AnalyzeFoodResponse, AsyncLogResponse
-from app.services.openai import analyze_food_image
+from app.services.openai import analyze_food_image, edit_log
+from app.services.s3 import is_s3_configured, upload_image, get_presigned_url
 from app.utils.image import upload_file_to_base64, validate_base64_image_format
 
 router = APIRouter()
@@ -24,8 +25,8 @@ _idempotency_map: dict[str, str] = {}
 _log_store_lock = asyncio.Lock()
 
 
-async def _parse_input_payload(request: Request) -> tuple[str, Optional[str], Optional[str]]:
-    image_base64: str
+async def _parse_input_payload(request: Request) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    image_base64: Optional[str] = None
     desc: Optional[str] = None
     idempotency_key: Optional[str] = None
 
@@ -35,13 +36,11 @@ async def _parse_input_payload(request: Request) -> tuple[str, Optional[str], Op
     if is_multipart:
         form = await request.form()
         image_file = form.get("image")
-        if not image_file or not hasattr(image_file, "read"):
-            raise AppError(400, "Image file is required")
-
-        try:
-            image_base64 = await upload_file_to_base64(image_file)
-        except ValueError as exc:
-            raise AppError(400, str(exc))
+        if image_file and hasattr(image_file, "read"):
+            try:
+                image_base64 = await upload_file_to_base64(image_file)
+            except ValueError as exc:
+                raise AppError(400, str(exc))
 
         desc_value = form.get("description")
         if desc_value is not None:
@@ -61,15 +60,29 @@ async def _parse_input_payload(request: Request) -> tuple[str, Optional[str], Op
         image_base64 = body.image
         desc = body.description
 
-    if not validate_base64_image_format(image_base64):
+    if not image_base64 and not desc:
+        raise AppError(400, "Either an image or a description is required")
+
+    if image_base64 and not validate_base64_image_format(image_base64):
         raise AppError(400, "Unsupported image format. Supported formats: JPEG, PNG, WebP")
 
     return image_base64, desc, idempotency_key
 
 
-async def _run_async_analysis(log_id: str, image_base64: str, description: Optional[str]) -> None:
+async def _run_async_analysis(log_id: str, image_base64: str, description: Optional[str], user_id: Optional[str] = None) -> None:
     try:
         result = await analyze_food_image(image_base64, description)
+
+        # Upload image to S3 if configured
+        image_key: Optional[str] = None
+        image_url: Optional[str] = None
+        if is_s3_configured():
+            try:
+                image_key = await upload_image(image_base64, user_id=user_id)
+                image_url = get_presigned_url(image_key)
+            except Exception:
+                pass  # Non-fatal: analysis still succeeds without image storage
+
         async with _log_store_lock:
             log = _log_store.get(log_id)
             if not log:
@@ -78,6 +91,9 @@ async def _run_async_analysis(log_id: str, image_base64: str, description: Optio
             log["updatedAt"] = time.time()
             log["result"] = result.model_dump()
             log["error"] = None
+            if image_key:
+                log["imageKey"] = image_key
+                log["imageUrl"] = image_url
     except Exception as exc:
         async with _log_store_lock:
             log = _log_store.get(log_id)
@@ -102,6 +118,32 @@ async def analyze_food(
     """
     image_base64, desc, _ = await _parse_input_payload(request)
     result = await analyze_food_image(image_base64, desc)
+
+    image_url = None
+    if is_s3_configured():
+        try:
+            key = await upload_image(image_base64, user_id=_user_id)
+            image_url = get_presigned_url(key)
+        except Exception:
+            pass  # Non-fatal
+
+    return AnalyzeFoodResponse(**result.model_dump(), imageUrl=image_url)
+
+
+@router.post("/api/edit-log", response_model=AnalyzeFoodResponse)
+@limiter.limit(RATE_LIMIT_STR)
+async def edit_log_endpoint(
+    request: Request,
+    _user_id: Annotated[str, Depends(require_active_subscription)],
+) -> AnalyzeFoodResponse:
+    """Apply a natural-language correction to existing meal log ingredients."""
+    body = await request.json()
+    try:
+        edit_request = EditLogRequest(**body)
+    except Exception as exc:
+        raise AppError(400, f"Validation failed: {exc}")
+
+    result = await edit_log(edit_request.ingredients, edit_request.correction)
     return AnalyzeFoodResponse(**result.model_dump())
 
 
@@ -135,7 +177,7 @@ async def create_log(
         if idempotency_key:
             _idempotency_map[idempotency_key] = log_id
 
-    asyncio.create_task(_run_async_analysis(log_id, image_base64, desc))
+    asyncio.create_task(_run_async_analysis(log_id, image_base64, desc, user_id=_user_id))
     return AsyncLogResponse(**log)
 
 

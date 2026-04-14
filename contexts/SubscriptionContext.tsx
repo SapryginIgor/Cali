@@ -1,16 +1,17 @@
 import createContextHook from "@nkzw/create-context-hook";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Platform } from "react-native";
 import Purchases, {
   type CustomerInfo,
   LOG_LEVEL,
 } from "react-native-purchases";
+import RevenueCatUI, { PAYWALL_RESULT } from "react-native-purchases-ui";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/lib/supabase";
 import type { SubscriptionStatus } from "@/constants/types";
 
-const ENTITLEMENT_ID = "premium";
+const ENTITLEMENT_ID = "Cali Pro";
 
 const RC_IOS_KEY = process.env.EXPO_PUBLIC_RC_IOS_KEY ?? "";
 const RC_ANDROID_KEY = process.env.EXPO_PUBLIC_RC_ANDROID_KEY ?? "";
@@ -28,7 +29,6 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(
   () => {
     const { user } = useAuth();
     const { data: profile } = useProfile();
-    const [paywallVisible, setPaywallVisible] = useState(false);
     const rcConfiguredRef = useRef(false);
 
     const dbStatus = profile?.subscription_status ?? "trialing";
@@ -42,7 +42,7 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(
       return dbStatus;
     }, [dbStatus, daysRemaining]);
 
-    const isPremium = status === "trialing" || status === "premium";
+    const isPremium = __DEV__ || status === "trialing" || status === "premium";
     const isTrialExpired = status === "trial_expired";
 
     // --- RevenueCat setup ---
@@ -97,17 +97,41 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(
       }
     }, [user]);
 
-    const presentPaywall = useCallback(() => setPaywallVisible(true), []);
-    const dismissPaywall = useCallback(() => setPaywallVisible(false), []);
+    // Present the RevenueCat Paywall UI. Always shows so the user can
+    // choose between Monthly / Yearly / Lifetime offerings.
+    const presentPaywall = useCallback(async () => {
+      if (!isRevenueCatConfigured) return;
+      try {
+        const result = await RevenueCatUI.presentPaywall();
+        if (
+          result === PAYWALL_RESULT.PURCHASED ||
+          result === PAYWALL_RESULT.RESTORED
+        ) {
+          const info = await Purchases.getCustomerInfo();
+          await syncEntitlements(info);
+        }
+      } catch {
+        // RevenueCatUI not available on this platform (e.g. web)
+      }
+    }, [syncEntitlements]);
+
+    // Open the RevenueCat Customer Center so users can manage / cancel.
+    const presentCustomerCenter = useCallback(async () => {
+      if (!isRevenueCatConfigured) return;
+      try {
+        await RevenueCatUI.presentCustomerCenter();
+      } catch {
+        // Not available on this platform
+      }
+    }, []);
 
     return {
       status,
       isPremium,
       isTrialExpired,
       daysRemaining,
-      paywallVisible,
       presentPaywall,
-      dismissPaywall,
+      presentCustomerCenter,
     };
   }
 );

@@ -1,4 +1,4 @@
-import { generateObject } from "@/lib/ai";
+import { generateObject, editLogWithAI } from "@/lib/ai";
 import { useRouter } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
@@ -9,6 +9,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Send,
   Sparkles,
   Trash2,
   User,
@@ -27,6 +28,7 @@ import {
   Modal,
   Alert,
   Keyboard,
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   TouchableWithoutFeedback,
@@ -244,11 +246,10 @@ export default function TodayScreen() {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [editDescription, setEditDescription] = useState("");
-  const [editCarbs, setEditCarbs] = useState("");
-  const [editProtein, setEditProtein] = useState("");
-  const [editFats, setEditFats] = useState("");
-  const [editCalories, setEditCalories] = useState("");
   const [editIngredients, setEditIngredients] = useState<IngredientItem[]>([]);
+  const [editAICorrection, setEditAICorrection] = useState("");
+  const [editAILoading, setEditAILoading] = useState(false);
+  const [editKeyboardHeight, setEditKeyboardHeight] = useState(0);
   const [selectedDate, setSelectedDate] = useState(todayDate);
 
   const calendarWeeks = useMemo(
@@ -261,9 +262,7 @@ export default function TodayScreen() {
   const cameraRef = useRef<CameraView>(null);
   const [cameraFacing, setCameraFacing] = useState<"front" | "back">("back");
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const isE2EMode = process.env.EXPO_PUBLIC_E2E === "1";
-
-  const getAnalysisMessages = useCallback((description: string, imageUri?: string) => {
+const getAnalysisMessages = useCallback((description: string, imageUri?: string) => {
     let messages: any[] = [];
     if (imageUri) {
       messages = [
@@ -356,18 +355,28 @@ export default function TodayScreen() {
     }
   }, [entries, getAnalysisMessages, updateFoodEntry]);
 
+  const submitEntry = useCallback((imageUri: string | null, text: string) => {
+    const pendingId = Date.now().toString();
+    const now = new Date();
+    const entryDate = new Date(selectedDate);
+    entryDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+    const pendingDescription = text.trim();
+
+    addFoodEntry({
+      id: pendingId,
+      timestamp: entryDate.getTime(),
+      description: "Analyzing meal...",
+      pendingDescription: pendingDescription || undefined,
+      ingredients: [],
+      imageUri: imageUri ?? undefined,
+      analysisStatus: "pending",
+      nutrition: { carbs: 0, protein: 0, fats: 0, calories: 0 },
+    });
+  }, [selectedDate, addFoodEntry]);
+
   const handleOpenLogMeal = useCallback(async () => {
     if (!isPremium) {
       presentPaywall();
-      return;
-    }
-    setInputText("");
-    setSelectedImage(null);
-    if (isE2EMode) {
-      setSelectedImage(
-        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/w8AAgMBgJ7n6fQAAAAASUVORK5CYII="
-      );
-      setModalVisible(true);
       return;
     }
     if (!cameraPermission?.granted) {
@@ -378,23 +387,21 @@ export default function TodayScreen() {
       }
     }
     setModalVisible(true);
-  }, [isPremium, presentPaywall, isE2EMode, cameraPermission, requestCameraPermission]);
+  }, [isPremium, presentPaywall, cameraPermission, requestCameraPermission]);
 
   const handleCapture = useCallback(async () => {
     if (!cameraRef.current) return;
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
       if (photo) {
-        setSelectedImage(photo.uri);
+        submitEntry(photo.uri, inputText);
+        setInputText("");
+        setModalVisible(false);
       }
     } catch (error) {
       console.error("Failed to capture photo:", error);
     }
-  }, []);
-
-  const handleRetake = useCallback(() => {
-    setSelectedImage(null);
-  }, []);
+  }, [inputText, submitEntry]);
 
   const handleFlipCamera = useCallback(() => {
     setCameraFacing((prev) => (prev === "back" ? "front" : "back"));
@@ -412,42 +419,16 @@ export default function TodayScreen() {
       quality: 1,
     });
     if (!result.canceled) {
-      setSelectedImage(result.assets[0].uri);
+      submitEntry(result.assets[0].uri, inputText);
+      setInputText("");
+      setModalVisible(false);
     }
   };
 
   const handleSubmit = () => {
-    if (isSubmitting) {
-      return;
-    }
-    if (!selectedImage) {
-      Alert.alert("Photo required", "Please take a photo of your meal");
-      return;
-    }
+    if (isSubmitting) return;
     setIsSubmitting(true);
-    const pendingId = Date.now().toString();
-    const now = new Date();
-    const entryDate = new Date(selectedDate);
-    entryDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
-    const pendingDescription = inputText.trim();
-
-    addFoodEntry({
-      id: pendingId,
-      timestamp: entryDate.getTime(),
-      description: "Analyzing meal...",
-      pendingDescription: pendingDescription || undefined,
-      ingredients: [],
-      imageUri: selectedImage,
-      analysisStatus: "pending",
-      nutrition: {
-        carbs: 0,
-        protein: 0,
-        fats: 0,
-        calories: 0,
-      },
-    });
-
-    setModalVisible(false);
+    submitEntry(selectedImage, inputText);
     setInputText("");
     setSelectedImage(null);
     setIsSubmitting(false);
@@ -455,7 +436,7 @@ export default function TodayScreen() {
 
   useEffect(() => {
     entries
-      .filter((entry) => entry.analysisStatus === "pending" && entry.imageUri)
+      .filter((entry) => entry.analysisStatus === "pending" && (entry.imageUri || entry.pendingDescription))
       .forEach((entry) => {
         void processPendingEntry(entry.id, entry.pendingDescription || "", entry.imageUri);
       });
@@ -467,13 +448,22 @@ export default function TodayScreen() {
         return;
       }
       entries
-        .filter((entry) => entry.analysisStatus === "pending" && entry.imageUri)
+        .filter((entry) => entry.analysisStatus === "pending" && (entry.imageUri || entry.pendingDescription))
         .forEach((entry) => {
           void processPendingEntry(entry.id, entry.pendingDescription || "", entry.imageUri);
         });
     });
     return () => subscription.remove();
   }, [entries, processPendingEntry]);
+
+  useEffect(() => {
+    if (!editModalVisible) return;
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, (e) => setEditKeyboardHeight(e.endCoordinates.height));
+    const hideSub = Keyboard.addListener(hideEvent, () => setEditKeyboardHeight(0));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, [editModalVisible]);
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -498,20 +488,14 @@ export default function TodayScreen() {
     setEditModalVisible(false);
     setEditingEntryId(null);
     setEditDescription("");
-    setEditCarbs("");
-    setEditProtein("");
-    setEditFats("");
-    setEditCalories("");
     setEditIngredients([]);
+    setEditAICorrection("");
+    setEditAILoading(false);
   };
 
   const handleEditEntry = (entry: FoodEntry) => {
     setEditingEntryId(entry.id);
     setEditDescription(entry.description);
-    setEditCarbs(entry.nutrition.carbs.toString());
-    setEditProtein(entry.nutrition.protein.toString());
-    setEditFats(entry.nutrition.fats.toString());
-    setEditCalories(entry.nutrition.calories.toString());
     setEditIngredients(normalizeIngredientList(entry.ingredients, entry.description));
     setEditModalVisible(true);
   };
@@ -557,31 +541,28 @@ export default function TodayScreen() {
     setEditIngredients((prev) => prev.filter((ingredient) => ingredient.id !== ingredientId));
   };
 
+  const handleAIEditSubmit = async () => {
+    const correction = editAICorrection.trim();
+    if (!correction || editAILoading) return;
+
+    setEditAILoading(true);
+    try {
+      const result = await editLogWithAI(editIngredients, correction);
+      setEditIngredients(result.ingredients);
+      if (result.logName) setEditDescription(result.logName);
+      setEditAICorrection("");
+    } catch (error) {
+      Alert.alert(
+        "AI Edit Failed",
+        error instanceof Error ? error.message : "Something went wrong. Please try again."
+      );
+    } finally {
+      setEditAILoading(false);
+    }
+  };
+
   const handleSaveEditedEntry = () => {
     if (!editingEntryId) {
-      return;
-    }
-
-    const carbs = Number(editCarbs.trim());
-    const protein = Number(editProtein.trim());
-    const fats = Number(editFats.trim());
-    const calories = Number(editCalories.trim());
-
-    const invalidNumber =
-      !Number.isFinite(carbs) ||
-      !Number.isFinite(protein) ||
-      !Number.isFinite(fats) ||
-      !Number.isFinite(calories) ||
-      carbs < 0 ||
-      protein < 0 ||
-      fats < 0 ||
-      calories < 0;
-
-    if (invalidNumber) {
-      Alert.alert(
-        "Invalid nutrition values",
-        "Please enter valid non-negative numbers for carbs, protein, fats, and calories."
-      );
       return;
     }
 
@@ -600,15 +581,20 @@ export default function TodayScreen() {
       return;
     }
 
+    const protein = normalizedIngredients.reduce((sum, i) => sum + i.proteins, 0);
+    const carbs = normalizedIngredients.reduce((sum, i) => sum + i.carbs, 0);
+    const fats = normalizedIngredients.reduce((sum, i) => sum + i.fats, 0);
+    const calories = carbs * 4 + protein * 4 + fats * 9;
+
     updateFoodEntry({
       ...existingEntry,
       description: editDescription.trim() || toIngredientSummary(normalizedIngredients),
       ingredients: normalizedIngredients,
       nutrition: {
-        carbs,
-        protein,
-        fats,
-        calories,
+        carbs: Math.round(carbs * 10) / 10,
+        protein: Math.round(protein * 10) / 10,
+        fats: Math.round(fats * 10) / 10,
+        calories: Math.round(calories),
       },
     });
     resetEditState();
@@ -866,26 +852,6 @@ export default function TodayScreen() {
         </ScrollView>
       </SafeAreaView>
 
-      {/* Circular Floating Action Button */}
-      <View style={styles.fabContainer}>
-        <TouchableOpacity
-          style={styles.fab}
-          onPress={handleOpenLogMeal}
-          activeOpacity={0.9}
-          accessibilityRole="button"
-          accessibilityLabel="Log meal"
-        >
-          <LinearGradient
-            colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.fabGradient}
-          >
-            <Plus color="#FFFFFF" size={40} strokeWidth={3} />
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
-
       <Modal
         visible={editModalVisible}
         animationType="slide"
@@ -907,7 +873,7 @@ export default function TodayScreen() {
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             <View style={styles.inputContainer}>
               <Text style={styles.inputLabel}>Description</Text>
               <TextInput
@@ -986,51 +952,63 @@ export default function TodayScreen() {
 
             <View style={styles.editNutritionGrid}>
               <View style={styles.editNutritionField}>
-                <Text style={styles.inputLabel}>Protein (g)</Text>
-                <TextInput
-                  style={styles.editNutritionInput}
-                  value={editProtein}
-                  onChangeText={setEditProtein}
-                  keyboardType="decimal-pad"
-                  placeholder="0"
-                  placeholderTextColor={Colors.light.secondaryText}
-                />
+                <Text style={styles.inputLabel}>Protein</Text>
+                <Text style={styles.editNutritionValue}>
+                  {Math.round(editIngredients.reduce((s, i) => s + i.proteins, 0) * 10) / 10}g
+                </Text>
               </View>
               <View style={styles.editNutritionField}>
-                <Text style={styles.inputLabel}>Carbs (g)</Text>
-                <TextInput
-                  style={styles.editNutritionInput}
-                  value={editCarbs}
-                  onChangeText={setEditCarbs}
-                  keyboardType="decimal-pad"
-                  placeholder="0"
-                  placeholderTextColor={Colors.light.secondaryText}
-                />
+                <Text style={styles.inputLabel}>Carbs</Text>
+                <Text style={styles.editNutritionValue}>
+                  {Math.round(editIngredients.reduce((s, i) => s + i.carbs, 0) * 10) / 10}g
+                </Text>
               </View>
               <View style={styles.editNutritionField}>
-                <Text style={styles.inputLabel}>Fats (g)</Text>
-                <TextInput
-                  style={styles.editNutritionInput}
-                  value={editFats}
-                  onChangeText={setEditFats}
-                  keyboardType="decimal-pad"
-                  placeholder="0"
-                  placeholderTextColor={Colors.light.secondaryText}
-                />
+                <Text style={styles.inputLabel}>Fats</Text>
+                <Text style={styles.editNutritionValue}>
+                  {Math.round(editIngredients.reduce((s, i) => s + i.fats, 0) * 10) / 10}g
+                </Text>
               </View>
               <View style={styles.editNutritionField}>
                 <Text style={styles.inputLabel}>Calories</Text>
-                <TextInput
-                  style={styles.editNutritionInput}
-                  value={editCalories}
-                  onChangeText={setEditCalories}
-                  keyboardType="decimal-pad"
-                  placeholder="0"
-                  placeholderTextColor={Colors.light.secondaryText}
-                />
+                <Text style={styles.editNutritionValue}>
+                  {Math.round(
+                    editIngredients.reduce((s, i) => s + i.carbs, 0) * 4 +
+                    editIngredients.reduce((s, i) => s + i.proteins, 0) * 4 +
+                    editIngredients.reduce((s, i) => s + i.fats, 0) * 9
+                  )}
+                </Text>
               </View>
             </View>
+
           </ScrollView>
+
+          <View style={[styles.aiEditBar, editKeyboardHeight > 0 && { paddingBottom: editKeyboardHeight - 20 }]}>
+            <TextInput
+              style={styles.aiEditInput}
+              placeholder="What to change?"
+              placeholderTextColor={Colors.light.secondaryText}
+              value={editAICorrection}
+              onChangeText={setEditAICorrection}
+              editable={!editAILoading}
+              returnKeyType="send"
+              onSubmitEditing={handleAIEditSubmit}
+            />
+            <TouchableOpacity
+              style={[
+                styles.aiEditSendButton,
+                (!editAICorrection.trim() || editAILoading) && styles.aiEditSendButtonDisabled,
+              ]}
+              onPress={handleAIEditSubmit}
+              disabled={!editAICorrection.trim() || editAILoading}
+            >
+              {editAILoading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Send size={18} color="#FFFFFF" />
+              )}
+            </TouchableOpacity>
+          </View>
         </SafeAreaView>
       </Modal>
 
@@ -1045,89 +1023,61 @@ export default function TodayScreen() {
         }}
       >
         <View style={styles.confirmContainer}>
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.confirmImageArea}>
-            {selectedImage ? (
-              <Image
-                source={{ uri: selectedImage }}
-                style={StyleSheet.absoluteFill}
-                contentFit="cover"
-              />
-            ) : (
-              <CameraView
-                ref={cameraRef}
-                style={StyleSheet.absoluteFill}
-                facing={cameraFacing}
-              />
-            )}
-
-            <View style={[styles.confirmTopBar, { paddingTop: safeInsets.top + 12 }]}>
-              <View style={styles.cameraTopRow}>
-                <TouchableOpacity
-                  style={styles.confirmCloseButton}
-                  onPress={() => {
-                    setModalVisible(false);
-                    setInputText("");
-                    setSelectedImage(null);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Cancel"
-                >
-                  <X color="#FFFFFF" size={24} />
-                </TouchableOpacity>
-                {!selectedImage && (
-                  <TouchableOpacity
-                    style={styles.confirmCloseButton}
-                    onPress={handleFlipCamera}
-                    accessibilityRole="button"
-                    accessibilityLabel="Flip camera"
-                  >
-                    <RefreshCw color="#FFFFFF" size={20} />
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-
-            {!selectedImage && (
-              <View style={styles.shutterContainer}>
-                <TouchableOpacity
-                  style={styles.shutterButton}
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    handleCapture();
-                  }}
-                  activeOpacity={0.7}
-                  accessibilityRole="button"
-                  accessibilityLabel="Take photo"
-                >
-                  <View style={styles.shutterInner} />
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-          </TouchableWithoutFeedback>
-
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : undefined}
-            style={styles.captionBarWrapper}
+            style={{ flex: 1 }}
           >
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+              <View style={styles.confirmImageArea}>
+                <CameraView
+                  ref={cameraRef}
+                  style={StyleSheet.absoluteFill}
+                  facing={cameraFacing}
+                />
+
+                <View style={[styles.confirmTopBar, { paddingTop: safeInsets.top + 12 }]}>
+                  <View style={styles.cameraTopRow}>
+                    <TouchableOpacity
+                      style={styles.confirmCloseButton}
+                      onPress={() => setModalVisible(false)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Cancel"
+                    >
+                      <X color="#FFFFFF" size={24} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.confirmCloseButton}
+                      onPress={handleFlipCamera}
+                      accessibilityRole="button"
+                      accessibilityLabel="Flip camera"
+                    >
+                      <RefreshCw color="#FFFFFF" size={20} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={styles.shutterContainer}>
+                  <TouchableOpacity
+                    style={styles.shutterButton}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      handleCapture();
+                    }}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel="Take photo"
+                  >
+                    <View style={styles.shutterInner} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+
             <SafeAreaView edges={["bottom"]} style={styles.captionBarSafe}>
               <View style={styles.captionBar}>
-                {selectedImage && (
-                  <TouchableOpacity
-                    style={styles.captionBarAction}
-                    onPress={handleRetake}
-                    disabled={isSubmitting}
-                    accessibilityRole="button"
-                    accessibilityLabel="Retake photo"
-                  >
-                    <Camera color="#FFFFFF" size={20} />
-                  </TouchableOpacity>
-                )}
                 <TouchableOpacity
                   style={styles.captionBarAction}
                   onPress={handleGallery}
-                  disabled={isSubmitting}
                   accessibilityRole="button"
                   accessibilityLabel="Choose from gallery"
                 >
@@ -1141,26 +1091,71 @@ export default function TodayScreen() {
                   onChangeText={setInputText}
                   multiline
                   maxLength={200}
-                  editable={!isSubmitting}
                 />
-                {selectedImage ? (
-                  <TouchableOpacity
-                    style={[styles.sendButton, isSubmitting && styles.sendButtonDisabled]}
-                    onPress={handleSubmit}
-                    disabled={isSubmitting}
-                    accessibilityRole="button"
-                    accessibilityLabel="Confirm log meal"
-                  >
-                    <ArrowUp color="#FFFFFF" size={22} strokeWidth={3} />
-                  </TouchableOpacity>
-                ) : (
-                  <View style={styles.sendButtonPlaceholder} />
-                )}
               </View>
             </SafeAreaView>
           </KeyboardAvoidingView>
         </View>
       </Modal>
+
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.inputBarWrapper}
+      >
+        <View style={styles.inputBar}>
+          {selectedImage && (
+            <View style={styles.inputBarThumb}>
+              <Image source={{ uri: selectedImage }} style={styles.inputBarThumbImage} contentFit="cover" />
+              <TouchableOpacity
+                style={styles.inputBarThumbRemove}
+                onPress={() => setSelectedImage(null)}
+                accessibilityRole="button"
+                accessibilityLabel="Remove photo"
+              >
+                <X color="#FFFFFF" size={10} />
+              </TouchableOpacity>
+            </View>
+          )}
+          <TextInput
+            style={styles.inputBarInput}
+            placeholder="What did you eat?"
+            placeholderTextColor={Colors.light.secondaryText}
+            value={inputText}
+            onChangeText={setInputText}
+            multiline
+            maxLength={200}
+            editable={!isSubmitting}
+          />
+          {(inputText.trim().length > 0 || selectedImage !== null) && (
+            <TouchableOpacity
+              style={[styles.inputBarSend, isSubmitting && styles.sendButtonDisabled]}
+              onPress={handleSubmit}
+              disabled={isSubmitting}
+              accessibilityRole="button"
+              accessibilityLabel="Log meal"
+            >
+              <ArrowUp color="#FFFFFF" size={22} strokeWidth={3} />
+            </TouchableOpacity>
+          )}
+        </View>
+        <TouchableOpacity
+          style={styles.inputBarCameraBtn}
+          onPress={handleOpenLogMeal}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Add photo"
+        >
+          <LinearGradient
+            colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.inputBarCameraBtnGradient}
+          >
+            <Camera color="#FFFFFF" size={40} />
+          </LinearGradient>
+        </TouchableOpacity>
+        <View style={{ height: safeInsets.bottom }} />
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -1454,7 +1449,7 @@ const styles = StyleSheet.create({
   },
   timeline: {
     paddingHorizontal: 20,
-    paddingBottom: 120,
+    paddingBottom: 24,
     gap: 16,
   },
   entryCard: {
@@ -1618,16 +1613,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600" as const,
   },
-  fabContainer: {
-    position: "absolute",
-    bottom: 16,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    pointerEvents: "box-none",
+  inputBarWrapper: {
+    backgroundColor: "#FFFFFF",
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.border,
   },
-  fab: {
+  inputBarCameraBtn: {
+    alignSelf: "center",
+    marginTop: 6,
+    marginBottom: 0,
     width: 90,
     height: 90,
     borderRadius: 36,
@@ -1638,9 +1632,70 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     elevation: 16,
   },
-  fabGradient: {
+  inputBarCameraBtnGradient: {
     width: "100%",
     height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inputBar: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 10,
+    gap: 10,
+    minHeight: 60,
+  },
+  inputBarInput: {
+    flex: 1,
+    backgroundColor: Colors.light.cardBackground,
+    borderRadius: 22,
+    paddingHorizontal: 18,
+    paddingVertical: 13,
+    fontSize: 18,
+    color: Colors.light.text,
+    maxHeight: 120,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+  },
+  inputBarSend: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.light.tint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inputBarThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    overflow: "visible",
+  },
+  inputBarThumbImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+  },
+  inputBarThumbRemove: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: Colors.light.text,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  galleryBtn: {
+    position: "absolute",
+    left: 32,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1710,7 +1765,7 @@ const styles = StyleSheet.create({
   },
   shutterContainer: {
     position: "absolute",
-    bottom: 12,
+    bottom: 20,
     left: 0,
     right: 0,
     alignItems: "center",
@@ -1831,6 +1886,48 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.light.border,
   },
+  editNutritionValue: {
+    fontSize: 16,
+    fontWeight: "600" as const,
+    color: Colors.light.text,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  aiEditBar: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.border,
+    backgroundColor: "#FFFFFF",
+    gap: 10,
+  },
+  aiEditInput: {
+    flex: 1,
+    backgroundColor: Colors.light.cardBackground,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: Colors.light.text,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+  },
+  aiEditSendButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.light.tint,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  },
+  aiEditSendButtonDisabled: {
+    opacity: 0.4,
+  },
+  sendButtonDisabled: {
+    opacity: 0.5,
+  },
   captionBarWrapper: {
     backgroundColor: "#1A1A1A",
   },
@@ -1863,20 +1960,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#FFFFFF",
     maxHeight: 100,
-  },
-  sendButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: Colors.light.tint,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sendButtonDisabled: {
-    opacity: 0.5,
-  },
-  sendButtonPlaceholder: {
-    width: 38,
-    height: 38,
   },
 });

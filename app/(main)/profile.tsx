@@ -10,7 +10,6 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   ScrollView,
   StyleSheet,
@@ -26,7 +25,7 @@ export default function ProfileScreen() {
   const { user, loading: authLoading, signIn, signUp, signOut, isSupabaseConfigured } = useAuth();
   const { data: profile, isLoading: profileLoading, updateProfile, isUpdating } = useProfile();
 
-  const { status, daysRemaining, isPremium, presentPaywall } = useSubscription();
+  const { status, daysRemaining, isPremium, presentPaywall, presentCustomerCenter } = useSubscription();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -186,6 +185,7 @@ export default function ProfileScreen() {
             ) : profileLoading ? (
               <ActivityIndicator size="large" color={Colors.light.accent1} style={styles.loader} />
             ) : (
+              <>
               <View style={styles.subscriptionCard}>
                 <View style={styles.subscriptionHeader}>
                   <Crown size={18} color={isPremium ? Colors.light.tint : Colors.light.secondaryText} />
@@ -207,13 +207,7 @@ export default function ProfileScreen() {
                 {status === "premium" ? (
                   <TouchableOpacity
                     style={styles.manageButton}
-                    onPress={() => {
-                      const url =
-                        Platform.OS === "ios"
-                          ? "https://apps.apple.com/account/subscriptions"
-                          : "https://play.google.com/store/account/subscriptions";
-                      void Linking.openURL(url);
-                    }}
+                    onPress={() => void presentCustomerCenter()}
                   >
                     <Text style={styles.manageButtonText}>Manage subscription</Text>
                   </TouchableOpacity>
@@ -265,6 +259,7 @@ export default function ProfileScreen() {
                   <Text style={styles.signOutText}>Sign out</Text>
                 </TouchableOpacity>
               </View>
+              </>
             )}
           </ScrollView>
         </KeyboardAvoidingView>

@@ -60,13 +60,13 @@ async function imageUriToBase64(imageUri: string): Promise<string> {
 const BACKEND_REQUEST_TIMEOUT_MS = 90_000;
 
 /**
- * Call backend API to analyze food image
- * @param imageBase64 - Base64 encoded image
+ * Call backend API to analyze food (image and/or text description)
+ * @param imageBase64 - Base64 encoded image (null for text-only)
  * @param description - Optional text description
  * @returns NutritionResult from backend API
  */
 async function callBackendAPI(
-  imageBase64: string,
+  imageBase64: string | null,
   description?: string
 ): Promise<NutritionResult> {
   if (!BACKEND_URL) {
@@ -87,19 +87,23 @@ async function callBackendAPI(
     const { data: sessionData } = await supabase.auth.getSession();
     if (sessionData.session?.access_token) {
       headers["Authorization"] = `Bearer ${sessionData.session.access_token}`;
+      console.log("[Cali API] Auth token added, user:", sessionData.session.user?.email);
+    } else {
+      console.log("[Cali API] No session found, request will be unauthenticated");
     }
-  } catch {
-    // If session retrieval fails, proceed without auth header
+  } catch (e) {
+    console.log("[Cali API] Session retrieval failed:", e);
   }
 
   try {
+    const body: Record<string, string> = {};
+    if (imageBase64) body.image = imageBase64;
+    if (description) body.description = description;
+
     const response = await fetch(url, {
       method: "POST",
       headers,
-      body: JSON.stringify({
-        image: imageBase64,
-        description: description,
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -253,9 +257,84 @@ function normalizeIngredientsFromApi(raw: unknown): IngredientItem[] {
     .filter((item): item is IngredientItem => item !== null);
 }
 
+/**
+ * Call backend to apply a natural-language correction to existing ingredients.
+ */
+export async function editLogWithAI(
+  ingredients: IngredientItem[],
+  correction: string
+): Promise<NutritionResult> {
+  if (!BACKEND_URL) {
+    throw new Error("Backend URL not configured");
+  }
+
+  const url = `${BACKEND_URL}/api/edit-log`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), BACKEND_REQUEST_TIMEOUT_MS);
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData.session?.access_token) {
+      headers["Authorization"] = `Bearer ${sessionData.session.access_token}`;
+    }
+  } catch (e) {
+    console.log("[Cali API] Session retrieval failed:", e);
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ ingredients, correction }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    if (
+      typeof data.carbs === "number" &&
+      typeof data.protein === "number" &&
+      typeof data.fats === "number" &&
+      typeof data.calories === "number" &&
+      typeof data.analysis === "string"
+    ) {
+      return {
+        carbs: data.carbs,
+        protein: data.protein,
+        fats: data.fats,
+        calories: data.calories,
+        analysis: data.analysis,
+        logName: typeof data.logName === "string" ? data.logName.trim() : "Meal",
+        ingredients: normalizeIngredientsFromApi(data.ingredients),
+      };
+    } else {
+      throw new Error("Invalid response format from backend");
+    }
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error) {
+      if (error.name === "AbortError") {
+        throw new Error("Request timed out.");
+      }
+      throw error;
+    }
+    throw new Error("Failed to call backend API");
+  }
+}
+
 /** Compatible with previous generateObject usage (messages + schema). Returns nutrition data from backend API or mock fallback. */
 export async function generateObject<T>(options: {
-  messages: Array<{ role: string; content: unknown } | { role: string; content: unknown[] }>;
+  messages: ({ role: string; content: unknown } | { role: string; content: unknown[] })[];
   schema: unknown;
 }): Promise<T> {
   const e2eDelay = Number(process.env.EXPO_PUBLIC_E2E_DELAY_MS || 0);
@@ -275,7 +354,7 @@ export async function generateObject<T>(options: {
 
   // Extract description and image URI from messages
   if (typeof content === "string") {
-    const match = content.match(/provide nutritional information:\s*(.+)/i);
+    const match = content.match(/Description:\s*(.+)$/i);
     description = match ? match[1].trim() : undefined;
   } else if (Array.isArray(content)) {
     // Find text part for description
@@ -298,10 +377,10 @@ export async function generateObject<T>(options: {
     return estimateNutrition(description || "meal") as T;
   }
 
-  if (BACKEND_URL && imageUri) {
-    console.log("[Cali API] Using backend:", BACKEND_URL, "| imageUri:", !!imageUri);
+  if (BACKEND_URL && (imageUri || description)) {
+    console.log("[Cali API] Using backend:", BACKEND_URL, "| imageUri:", !!imageUri, "| description:", !!description);
     try {
-      const imageBase64 = await imageUriToBase64(imageUri);
+      const imageBase64 = imageUri ? await imageUriToBase64(imageUri) : null;
       const result = await callBackendAPI(imageBase64, description);
       console.log("[Cali API] Backend success, calories:", result.calories);
       return result as T;
@@ -311,7 +390,7 @@ export async function generateObject<T>(options: {
     }
   }
 
-  console.log("[Cali API] Using mock (no BACKEND_URL or no image). BACKEND_URL:", BACKEND_URL || "(empty)", "| imageUri:", !!imageUri);
+  console.log("[Cali API] Using mock (no BACKEND_URL or no input). BACKEND_URL:", BACKEND_URL || "(empty)");
   return estimateNutrition(description || "meal") as T;
 }
 

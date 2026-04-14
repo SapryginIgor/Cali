@@ -9,7 +9,7 @@ from app.models.api import NutritionResult
 
 class AnalyzeFoodResponse(NutritionResult):
     """Response model for food analysis endpoint (extends NutritionResult)"""
-    pass
+    imageUrl: Optional[str] = None
 
 
 class AsyncLogResponse(BaseModel):
@@ -22,6 +22,8 @@ class AsyncLogResponse(BaseModel):
     updatedAt: float
     result: Optional[NutritionResult] = None
     error: Optional[str] = None
+    imageKey: Optional[str] = None
+    imageUrl: Optional[str] = None
 
 
 class ErrorResponse(BaseModel):

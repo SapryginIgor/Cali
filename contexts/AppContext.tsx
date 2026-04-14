@@ -92,11 +92,13 @@ export const [AppProvider, useApp] = createContextHook(() => {
     targetDate.setHours(0, 0, 0, 0);
     const targetDateTime = targetDate.getTime();
 
-    return entries.filter((entry) => {
-      const entryDate = new Date(entry.timestamp);
-      entryDate.setHours(0, 0, 0, 0);
-      return entryDate.getTime() === targetDateTime;
-    });
+    return entries
+      .filter((entry) => {
+        const entryDate = new Date(entry.timestamp);
+        entryDate.setHours(0, 0, 0, 0);
+        return entryDate.getTime() === targetDateTime;
+      })
+      .reverse();
   };
 
   const getTotalsByDate = (date: Date) => {

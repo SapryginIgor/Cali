@@ -5,10 +5,12 @@ Request models for API endpoints
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator
 
+from app.models.api import IngredientItem
+
 
 class AnalyzeFoodRequest(BaseModel):
     """Request model for food analysis endpoint"""
-    image: str = Field(..., min_length=1, description="Base64 encoded image string")
+    image: Optional[str] = Field(None, min_length=1, description="Base64 encoded image string")
     description: Optional[str] = Field(None, max_length=500, description="Optional text description")
     idempotencyKey: Optional[str] = Field(
         None,
@@ -41,3 +43,9 @@ class AnalyzeFoodRequest(BaseModel):
         if v is not None and len(v) > 500:
             raise ValueError("Description must be 500 characters or less")
         return v
+
+
+class EditLogRequest(BaseModel):
+    """Request model for AI-powered meal log editing"""
+    ingredients: list[IngredientItem] = Field(..., min_length=1, description="Current ingredients to edit")
+    correction: str = Field(..., min_length=1, max_length=500, description="Natural-language correction instruction")

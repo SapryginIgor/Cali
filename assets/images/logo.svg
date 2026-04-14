@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="logoGradient" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0%" stop-color="#F5C28A"/>
+      <stop offset="35%" stop-color="#F0A870"/>
+      <stop offset="70%" stop-color="#E8845A"/>
+      <stop offset="100%" stop-color="#E07050"/>
+    </linearGradient>
+    <!-- Mask to cut out the inner circle and the gap -->
+    <mask id="cMask">
+      <rect width="512" height="512" fill="white"/>
+      <!-- Inner cutout for the C ring -->
+      <circle cx="256" cy="256" r="120" fill="black"/>
+      <!-- Gap on the right side of the C -->
+      <rect x="310" y="190" width="200" height="132" fill="black"/>
+    </mask>
+  </defs>
+
+  <!-- Thick C shape -->
+  <circle cx="256" cy="256" r="220" fill="url(#logoGradient)" mask="url(#cMask)"/>
+
+  <!-- Centered dot -->
+  <circle cx="256" cy="256" r="65" fill="url(#logoGradient)"/>
+</svg>

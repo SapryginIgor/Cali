@@ -218,3 +218,24 @@ def get_analysis_prompt(
 
     fn, kwargs, max_tokens = entry
     return fn(**kwargs), max_tokens
+
+
+def build_edit_log_prompt(ingredients_json: str, correction: str) -> str:
+    prompt = (
+        "You are an expert nutritionist. The user has an existing meal log and wants "
+        "to make a correction. You will receive the current ingredients as JSON and a "
+        "natural-language correction instruction.\n\n"
+    )
+    prompt += SHARED_OUTPUT_SCHEMA
+    prompt += (
+        "Strategy:\n"
+        "1. Review the current ingredients carefully.\n"
+        "2. Apply the user's correction: add, remove, or modify ingredients as described.\n"
+        "3. Return the COMPLETE updated ingredient list (not just the changes).\n"
+        "4. Recalculate all macro values for modified ingredients.\n"
+        "5. Keep unchanged ingredients as-is.\n"
+        "6. Set `confidence` based on how clear the correction is.\n\n"
+        f"Current ingredients:\n```json\n{ingredients_json}\n```\n\n"
+        f"User's correction: {correction}\n\n"
+    )
+    return prompt

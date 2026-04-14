@@ -17,7 +17,7 @@ from app.models.api import (
     VALID_FOOD_CATEGORIES,
 )
 from app.exceptions import AppError
-from app.services.prompts import CLASSIFICATION_PROMPT, get_analysis_prompt
+from app.services.prompts import CLASSIFICATION_PROMPT, get_analysis_prompt, build_edit_log_prompt
 from app.services._openai_client import get_openai_client
 
 logger = logging.getLogger(__name__)
@@ -235,23 +235,25 @@ async def _analyze_with_web_search(
 
 
 async def analyze_food_image(
-    image_base64: str,
+    image_base64: Optional[str] = None,
     description: Optional[str] = None,
 ) -> NutritionResult:
     """Classify and then analyse a food image with category-specific prompting."""
     pipeline_t0 = time.monotonic()
     logger.info(
-        "===== [pipeline] Starting food analysis (image=%d chars, description=%s) =====",
-        len(image_base64),
+        "===== [pipeline] Starting food analysis (image=%s chars, description=%s) =====",
+        len(image_base64) if image_base64 else "none",
         repr(description[:80]) if description else "none",
     )
 
     try:
         client = get_openai_client()
 
-        image_data = image_base64
-        if "," in image_base64:
-            image_data = image_base64.split(",")[1]
+        image_data = ""
+        if image_base64:
+            image_data = image_base64
+            if "," in image_base64:
+                image_data = image_base64.split(",")[1]
 
         # --- Step 1: Classify ---
         classification = await classify_food_image(image_base64, description)
@@ -414,6 +416,58 @@ async def analyze_food_image(
         else:
             logger.error("[pipeline] Unknown error: %s", e, exc_info=True)
             raise AppError(500, "Failed to analyze food image")
+
+
+async def edit_log(
+    ingredients: list[IngredientItem],
+    correction: str,
+) -> NutritionResult:
+    """Apply a natural-language correction to existing ingredients using GPT-4.1."""
+    logger.info(
+        "[edit_log] Starting edit: %d ingredients, correction=%r",
+        len(ingredients), correction[:80],
+    )
+    t0 = time.monotonic()
+
+    try:
+        client = get_openai_client()
+        ingredients_json = json.dumps(
+            [ing.model_dump(exclude_none=True) for ing in ingredients],
+            indent=2,
+        )
+        prompt_text = build_edit_log_prompt(ingredients_json, correction)
+
+        response = await client.chat.completions.create(
+            model="gpt-4.1",
+            messages=[{"role": "user", "content": prompt_text}],
+            response_format={"type": "json_object"},
+            max_tokens=1500,
+        )
+
+        content = response.choices[0].message.content if response.choices else None
+        if not content:
+            raise AppError(500, "No response from AI service")
+
+        parsed = json.loads(content)
+        if not isinstance(parsed, dict):
+            raise AppError(500, "Invalid response format from AI service")
+
+        try:
+            result = NutritionResult(**parsed)
+        except Exception:
+            result = normalize_fallback(parsed, correction)
+
+        result.ingredients = normalize_ingredients(result.ingredients, correction)
+
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        logger.info("[edit_log] Complete in %dms, %d ingredients", elapsed_ms, len(result.ingredients))
+        return result
+
+    except AppError:
+        raise
+    except Exception as e:
+        logger.error("[edit_log] Failed: %s", e, exc_info=True)
+        raise AppError(500, "Failed to process edit request")
 
 
 def normalize_ingredients(
