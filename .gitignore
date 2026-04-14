@@ -2,6 +2,7 @@
 
 # IDE / project
 .cursor/
+.claude/worktrees/
 
 # dependencies
 node_modules/

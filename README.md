@@ -1,80 +1,82 @@
-# Cali – Meal tracking app
+# Cali - AI Meal Logging App
 
-A cross-platform meal-tracking app built with **Expo** and **React Native**.
+Cali is a mobile-first food logging app that lets users quickly log meals from photos, review detected ingredients/macros, and track nutrition over time.
 
-- **Platforms**: iOS, Android, Web
-- **Stack**: Expo Router, React Native, TypeScript
+## What the app does
 
-## Getting started
+- Fast photo-based food logging
+- AI-powered nutrition analysis (ingredients, carbs, fats, protein, calories)
+- Async log processing flow for reliable background analysis
+- Profile and auth flows via Supabase
+- Daily timeline style UI for meal history
 
-**Requirements:** Node.js and Bun (or npm). [Install Node with nvm](https://github.com/nvm-sh/nvm), [install Bun](https://bun.sh/docs/installation).
+## Screenshots
 
-```bash
-# Install dependencies
-bun i
+### Meal card example
 
-# Start dev server (tunnel)
-bun run start
+![Cali Caesar Example](assets/images/caesar.jpg)
 
-# Web preview
-bun run start-web
-```
+### Branding
 
-Then press `i` for iOS Simulator or `a` for Android Emulator, or scan the QR code with Expo Go.
-
-If you see `ERR_UNKNOWN_FILE_EXTENSION` when running `bun run start`, use Node instead: `npm run start`.
-
-## Scripts
-
-| Command         | Description                    |
-|----------------|--------------------------------|
-| `bun run start` | Start Expo with tunnel         |
-| `bun run start-web` | Start web preview with tunnel |
-| `bun run lint`  | Run ESLint                     |
+![Cali Logo](assets/images/logo.svg)
 
 ## Tech stack
 
-- **React Native** – Cross-platform UI
-- **Expo** – Build and tooling
-- **Expo Router** – File-based routing (iOS, Android, web)
-- **TypeScript** – Type safety
-- **React Query** – Server state (if used)
-- **Lucide React Native** – Icons
-- **Zustand** – Client state
+- `React Native` + `Expo` + `Expo Router`
+- `TypeScript`
+- Supabase (auth/profile/data)
+- FastAPI backend for AI food analysis
+- OpenAI-based vision + nutrition pipeline
 
 ## Project structure
 
+```text
+app/                 # Expo Router screens
+backend/             # FastAPI API and AI service
+constants/           # Shared app constants/types
+contexts/            # React contexts (auth, app state)
+hooks/               # Custom hooks
+lib/                 # Frontend API/AI integration helpers
+supabase/            # SQL migrations
+assets/images/       # App images/icons
 ```
-├── app/              # Screens (Expo Router)
-│   ├── (main)/       # Main logging screen
-│   └── _layout.tsx
-├── constants/        # Colors, types
-├── contexts/         # App context (food entries)
-├── lib/              # Helpers (e.g. lib/ai.ts for nutrition/tips)
-├── app.json          # Expo config
-└── package.json
+
+## Local development
+
+### Frontend
+
+```bash
+bun i
+bun run start
 ```
 
-## AI / nutrition analysis
+### Backend
 
-Nutrition estimates currently use **local mocks** in `lib/ai.ts` (no external API). To use a real AI provider (e.g. OpenAI, Vercel AI SDK):
+```bash
+cd backend
+python3 -m pip install -r requirements.txt
+python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
 
-1. Add your SDK and API key.
-2. Replace the implementations of `generateObject` and `generateText` in `lib/ai.ts` with calls to your provider.
+## Environment
+
+- Frontend points to backend via `EXPO_PUBLIC_BACKEND_URL`
+- Backend requires `OPENAI_API_KEY`
+- Supabase client config is required for auth/profile features
+
+## Useful scripts
+
+| Command | Description |
+|---|---|
+| `bun run start` | Start Expo dev server |
+| `bun run start-web` | Start web dev preview |
+| `bun run lint` | Run lint checks |
 
 ## Testing
 
-- **Phone:** Install [Expo Go](https://expo.dev/go) (iOS/Android), run `bun run start`, scan the QR code.
-- **Web:** `bun run start-web`
-- **Simulators:** `bun run start -- --ios` or `-- --android` (with Xcode / Android Studio).
+Backend tests:
 
-## Deploy
-
-- **iOS/Android:** [EAS Build](https://docs.expo.dev/build/introduction/) and [EAS Submit](https://docs.expo.dev/submit/introduction/).
-- **Web:** `eas build --platform web` and deploy the output (e.g. Vercel, Netlify).
-
-## Troubleshooting
-
-- **App not loading on device:** Same WiFi as dev machine; try `bun run start` (tunnel).
-- **Build issues:** `bunx expo start --clear`; or `rm -rf node_modules && bun i`.
-- **Docs:** [Expo](https://docs.expo.dev/), [React Native](https://reactnative.dev/docs/getting-started).
+```bash
+cd backend
+python3 -m pytest tests/ -v
+```
