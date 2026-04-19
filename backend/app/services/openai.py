@@ -182,9 +182,8 @@ def _reconcile_nutrition_totals(
     """Derive macros from ingredients and optionally preserve reported calories.
 
     - Macros (`carbs`, `fats`, `protein`) are always derived from final ingredients.
-    - Calories are derived from macros by default.
-    - If `prefer_reported_calories` is True (e.g. source-backed packaged product),
-      keep the model/source-reported calories when present.
+    - Calories are derived from per-ingredient calories so total is transparent.
+    - `prefer_reported_calories` is kept for compatibility and only affects logging.
     """
     if not result.ingredients:
         return result
@@ -192,7 +191,15 @@ def _reconcile_nutrition_totals(
     ing_carbs = sum(i.carbs for i in result.ingredients)
     ing_fats = sum(i.fats for i in result.ingredients)
     ing_proteins = sum(i.proteins for i in result.ingredients)
-    derived_calories = ing_carbs * 4 + ing_proteins * 4 + ing_fats * 9
+    ingredient_calories_sum = sum(
+        (
+            float(i.calories)
+            if isinstance(i.calories, (int, float)) and i.calories >= 0
+            else (i.carbs * 4 + i.proteins * 4 + i.fats * 9)
+        )
+        for i in result.ingredients
+    )
+    derived_calories = ingredient_calories_sum
 
     reported_calories = result.calories
     had_difference = (
@@ -217,14 +224,12 @@ def _reconcile_nutrition_totals(
     result.fats = round(ing_fats, 1)
     result.protein = round(ing_proteins, 1)
     if prefer_reported_calories and isinstance(reported_calories, (int, float)) and reported_calories > 0:
-        result.calories = round(float(reported_calories))
         logger.info(
-            "[normalize] Preserving source-reported calories: %.1f (derived from macros would be %.1f)",
+            "[normalize] Source-reported total calories=%.1f; final total uses ingredient sum=%.1f",
             reported_calories,
             derived_calories,
         )
-    else:
-        result.calories = round(derived_calories)
+    result.calories = round(derived_calories)
 
     return result
 
@@ -269,6 +274,21 @@ def _extract_source_domains(response: Any) -> list[str]:
                 except Exception:
                     continue
     return domains
+
+
+def _apply_default_sources_to_ingredients(
+    result: NutritionResult,
+    source_domains: list[str],
+) -> NutritionResult:
+    """Populate ingredient-level sources from extracted domains when missing."""
+    if not source_domains:
+        return result
+
+    for ingredient in result.ingredients:
+        if ingredient.sources:
+            continue
+        ingredient.sources = source_domains[:3]
+    return result
 
 
 def _has_web_search_calls(response: Any) -> bool:
@@ -447,6 +467,7 @@ async def analyze_food_image(
                 has_source_backed_calories = True
                 logger.info("[analyze] Web search analysis succeeded")
                 if source_domains:
+                    result = _apply_default_sources_to_ingredients(result, source_domains)
                     sources_note = f"Sources: {', '.join(source_domains[:3])}"
                     if result.mealNotes and result.mealNotes.strip():
                         if "sources:" not in result.mealNotes.lower():
@@ -476,6 +497,7 @@ async def analyze_food_image(
                     retry_parsed = parse_response_content(retry_content)
                     retry_result = NutritionResult(**retry_parsed)
                     if retry_sources:
+                        retry_result = _apply_default_sources_to_ingredients(retry_result, retry_sources)
                         retry_sources_note = f"Sources: {', '.join(retry_sources[:3])}"
                         if retry_result.mealNotes and retry_result.mealNotes.strip():
                             if "sources:" not in retry_result.mealNotes.lower():
@@ -690,6 +712,8 @@ async def edit_log(
             prefer_reported_calories=used_web_search_result,
         )
         if source_domains:
+            result = _apply_default_sources_to_ingredients(result, source_domains)
+        if source_domains:
             sources_note = f"Sources: {', '.join(source_domains[:3])}"
             if result.mealNotes and result.mealNotes.strip():
                 if "sources:" not in result.mealNotes.lower():
@@ -716,6 +740,8 @@ def normalize_ingredients(
         normalized: list[IngredientItem] = []
         for index, item in enumerate(raw):
             if isinstance(item, IngredientItem):
+                if item.calories is None or item.calories < 0:
+                    item.calories = round(item.carbs * 4 + item.proteins * 4 + item.fats * 9, 1)
                 normalized.append(item)
                 continue
             if not isinstance(item, dict):
@@ -725,6 +751,8 @@ def normalize_ingredients(
             carbs = item.get("carbs")
             fats = item.get("fats")
             proteins = item.get("proteins")
+            calories = item.get("calories")
+            sources = item.get("sources")
             if not isinstance(name, str) or not name.strip():
                 continue
             if not isinstance(quantity, str) or not quantity.strip():
@@ -738,6 +766,20 @@ def normalize_ingredients(
             if not isinstance(proteins, (int, float)) or proteins < 0:
                 continue
 
+            parsed_sources: Optional[list[str]] = None
+            if isinstance(sources, list):
+                parsed_sources = [
+                    s.strip()
+                    for s in sources
+                    if isinstance(s, str) and s.strip()
+                ] or None
+
+            parsed_calories = (
+                float(calories)
+                if isinstance(calories, (int, float)) and calories >= 0
+                else round(float(carbs) * 4 + float(proteins) * 4 + float(fats) * 9, 1)
+            )
+
             normalized.append(
                 IngredientItem(
                     id=(
@@ -750,6 +792,8 @@ def normalize_ingredients(
                     carbs=float(carbs),
                     fats=float(fats),
                     proteins=float(proteins),
+                    calories=parsed_calories,
+                    sources=parsed_sources,
                     unit=(
                         item.get("unit").strip()
                         if isinstance(item.get("unit"), str) and item.get("unit").strip()
@@ -785,6 +829,7 @@ def normalize_ingredients(
             carbs=0,
             fats=0,
             proteins=0,
+            calories=0,
         )
     ]
 

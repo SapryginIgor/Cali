@@ -43,6 +43,15 @@ class IngredientItem(BaseModel):
     carbs: float = Field(..., ge=0, description="Ingredient carbohydrates in grams")
     fats: float = Field(..., ge=0, description="Ingredient fats in grams")
     proteins: float = Field(..., ge=0, description="Ingredient proteins in grams")
+    calories: Optional[float] = Field(
+        None,
+        ge=0,
+        description="Ingredient calories (kcal) for this specific product/component",
+    )
+    sources: Optional[list[str]] = Field(
+        None,
+        description="Optional data source domains/labels used for this ingredient",
+    )
     unit: Optional[str] = Field(None, description="Optional ingredient unit")
     preparation: Optional[str] = Field(None, description="Optional preparation note")
     note: Optional[str] = Field(None, description="Optional ingredient note")

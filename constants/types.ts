@@ -17,6 +17,8 @@ export interface IngredientItem {
   carbs: number;
   fats: number;
   proteins: number;
+  calories: number;
+  sources?: string[];
   unit?: string;
   preparation?: string;
   note?: string;

@@ -33,13 +33,15 @@ SHARED_OUTPUT_SCHEMA = (
     '{ "carbs": number, "protein": number, "fats": number, "calories": number, '
     '"analysis": string, "logName": string, '
     '"ingredients": [{"id": string, "name": string, "quantity": string, '
-    '"carbs": number, "fats": number, "proteins": number, "unit"?: string, '
-    '"preparation"?: string, "note"?: string}], '
+    '"carbs": number, "fats": number, "proteins": number, "calories": number, '
+    '"sources"?: string[], "unit"?: string, "preparation"?: string, "note"?: string}], '
     '"mealNotes"?: string, "confidence": number, "foodCategory": string }\n\n'
     "Field rules:\n"
     "- `ingredients` MUST include one item per identified ingredient/component.\n"
     "- Every ingredient MUST include non-empty `name` and `quantity`.\n"
     "- Every ingredient MUST include numeric `carbs`, `fats`, and `proteins` in grams (>= 0).\n"
+    "- Every ingredient MUST include numeric `calories` (kcal, >= 0).\n"
+    "- Include `sources` for ingredients when known (especially packaged products searched online).\n"
     "- `logName` MUST be a short, human-friendly title (2-6 words).\n"
     '- `quantity` should be concise (e.g. "120 g", "1 tbsp", "to taste").\n'
     "- `analysis` should be brief and useful.\n"
@@ -115,7 +117,8 @@ def build_packaged_product_prompt(
         "   and set `confidence` below 0.5.\n"
         "10. Default to standard serving sizes unless packaging suggests otherwise.\n\n"
         "11. Prefer official/manufacturer or trusted retailer/product sources. Do not guess values when source data is missing.\n"
-        "12. Include a brief source hint in `mealNotes` (e.g., domain names used for lookup).\n\n"
+        "12. Fill each ingredient `sources` array with relevant source domains/labels used for that item.\n"
+        "13. Include a brief source hint in `mealNotes` (e.g., domain names used for lookup).\n\n"
         "IMPORTANT: Your response must be ONLY the raw JSON object, no markdown, "
         "no code fences, no explanation — just the JSON.\n\n"
     )

@@ -66,6 +66,8 @@ const nutritionSchema = z.object({
         carbs: z.number(),
         fats: z.number(),
         proteins: z.number(),
+        calories: z.number(),
+        sources: z.array(z.string()).optional(),
         unit: z.string().optional(),
         preparation: z.string().optional(),
         note: z.string().optional(),
@@ -272,7 +274,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             {
               type: "text",
               text:
-                "Analyze this meal image and return ONLY JSON with fields: carbs (number), protein (number), fats (number), calories (number), analysis (string), logName (string), ingredients (array of {id, name, quantity, carbs, fats, proteins, unit?, preparation?, note?}), and optional mealNotes (string). Include one ingredient item per meal component. Name, quantity, carbs, fats, and proteins are required for every ingredient. logName must be a short human-friendly title for the log." +
+                "Analyze this meal image and return ONLY JSON with fields: carbs (number), protein (number), fats (number), calories (number), analysis (string), logName (string), ingredients (array of {id, name, quantity, carbs, fats, proteins, calories, sources?, unit?, preparation?, note?}), and optional mealNotes (string). Include one ingredient item per meal component. Name, quantity, carbs, fats, proteins, and calories are required for every ingredient. logName must be a short human-friendly title for the log." +
                 (description ? ` Additional context: ${description}` : ""),
             },
             {
@@ -287,7 +289,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         {
           role: "user",
           content:
-            "Analyze this meal description and return ONLY JSON with fields: carbs, protein, fats, calories, analysis, logName, ingredients (array with id, name, quantity, carbs, fats, proteins), and optional mealNotes. logName must be a short human-friendly title for the log. " +
+            "Analyze this meal description and return ONLY JSON with fields: carbs, protein, fats, calories, analysis, logName, ingredients (array with id, name, quantity, carbs, fats, proteins, calories, optional sources), and optional mealNotes. logName must be a short human-friendly title for the log. " +
             `Description: ${description}`,
         },
       ];
@@ -528,10 +530,14 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     setEditIngredients((prev) =>
       prev.map((ingredient) =>
         ingredient.id === ingredientId
-          ? {
-              ...ingredient,
-              [field]: safeValue,
-            }
+          ? (() => {
+              const updated = {
+                ...ingredient,
+                [field]: safeValue,
+              };
+              const calories = updated.carbs * 4 + updated.proteins * 4 + updated.fats * 9;
+              return { ...updated, calories: Math.round(calories * 10) / 10 };
+            })()
           : ingredient
       )
     );
@@ -589,7 +595,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     const protein = normalizedIngredients.reduce((sum, i) => sum + i.proteins, 0);
     const carbs = normalizedIngredients.reduce((sum, i) => sum + i.carbs, 0);
     const fats = normalizedIngredients.reduce((sum, i) => sum + i.fats, 0);
-    const calories = carbs * 4 + protein * 4 + fats * 9;
+    const calories = normalizedIngredients.reduce((sum, i) => sum + i.calories, 0);
 
     updateFoodEntry({
       ...existingEntry,
@@ -808,8 +814,13 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                               </Text>
                               <Text style={styles.ingredientChipMacroText}>
                                 C {Math.round(ingredient.carbs)}g  F {Math.round(ingredient.fats)}g  P{" "}
-                                {Math.round(ingredient.proteins)}g
+                                {Math.round(ingredient.proteins)}g  |  {Math.round(ingredient.calories)} kcal
                               </Text>
+                              {ingredient.sources && ingredient.sources.length > 0 && (
+                                <Text style={styles.ingredientChipSourcesText}>
+                                  Sources: {ingredient.sources.join(", ")}
+                                </Text>
+                              )}
                             </View>
                           ))}
                         </View>
@@ -952,6 +963,14 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                     placeholderTextColor={Colors.light.secondaryText}
                   />
                 </View>
+                <Text style={styles.ingredientCaloriesText}>
+                  Ingredient calories: {Math.round(ingredient.calories)} kcal
+                </Text>
+                {ingredient.sources && ingredient.sources.length > 0 && (
+                  <Text style={styles.ingredientSourcesText}>
+                    Sources: {ingredient.sources.join(", ")}
+                  </Text>
+                )}
               </View>
             ))}
 
@@ -977,11 +996,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
               <View style={styles.editNutritionField}>
                 <Text style={styles.inputLabel}>Calories</Text>
                 <Text style={styles.editNutritionValue}>
-                  {Math.round(
-                    editIngredients.reduce((s, i) => s + i.carbs, 0) * 4 +
-                    editIngredients.reduce((s, i) => s + i.proteins, 0) * 4 +
-                    editIngredients.reduce((s, i) => s + i.fats, 0) * 9
-                  )}
+                  {Math.round(editIngredients.reduce((s, i) => s + i.calories, 0))}
                 </Text>
               </View>
             </View>
@@ -1587,6 +1602,12 @@ const styles = StyleSheet.create({
     color: Colors.light.secondaryText,
     fontWeight: "500" as const,
   },
+  ingredientChipSourcesText: {
+    marginTop: 2,
+    fontSize: 10,
+    color: Colors.light.secondaryText,
+    fontStyle: "italic" as const,
+  },
   entryAnalysisContainer: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -1858,6 +1879,18 @@ const styles = StyleSheet.create({
   ingredientMacroRow: {
     flexDirection: "row",
     gap: 8,
+  },
+  ingredientCaloriesText: {
+    marginTop: 8,
+    fontSize: 12,
+    color: Colors.light.secondaryText,
+    fontWeight: "600" as const,
+  },
+  ingredientSourcesText: {
+    marginTop: 2,
+    fontSize: 11,
+    color: Colors.light.secondaryText,
+    fontStyle: "italic" as const,
   },
   ingredientNameInput: {
     flex: 1.3,

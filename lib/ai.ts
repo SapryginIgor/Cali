@@ -247,6 +247,7 @@ function estimateNutrition(description: string): NutritionResult {
         carbs,
         fats,
         proteins: protein,
+        calories,
       },
     ],
   };
@@ -299,6 +300,23 @@ function normalizeIngredientsFromApi(raw: unknown): IngredientItem[] {
           data.proteins >= 0
             ? data.proteins
             : 0,
+        calories:
+          typeof data.calories === "number" &&
+          Number.isFinite(data.calories) &&
+          data.calories >= 0
+            ? data.calories
+            : Math.round(
+                (((typeof data.carbs === "number" ? data.carbs : 0) * 4 +
+                  (typeof data.proteins === "number" ? data.proteins : 0) * 4 +
+                  (typeof data.fats === "number" ? data.fats : 0) * 9) as number) *
+                  10
+              ) / 10,
+        sources:
+          Array.isArray(data.sources) && data.sources.length > 0
+            ? data.sources
+                .filter((source): source is string => typeof source === "string" && source.trim().length > 0)
+                .map((source) => source.trim())
+            : undefined,
         unit: typeof data.unit === "string" && data.unit.trim() ? data.unit.trim() : undefined,
         preparation:
           typeof data.preparation === "string" && data.preparation.trim()

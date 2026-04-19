@@ -7,6 +7,7 @@ export const createEmptyIngredient = (): IngredientItem => ({
   carbs: 0,
   fats: 0,
   proteins: 0,
+  calories: 0,
 });
 
 export const toIngredientSummary = (ingredients: IngredientItem[]): string => {
@@ -50,6 +51,23 @@ export const normalizeIngredientList = (
           ingredient.proteins >= 0
             ? ingredient.proteins
             : 0,
+        calories:
+          typeof ingredient.calories === "number" &&
+          Number.isFinite(ingredient.calories) &&
+          ingredient.calories >= 0
+            ? ingredient.calories
+            : Math.round(
+                ((typeof ingredient.carbs === "number" ? ingredient.carbs : 0) * 4 +
+                  (typeof ingredient.proteins === "number" ? ingredient.proteins : 0) * 4 +
+                  (typeof ingredient.fats === "number" ? ingredient.fats : 0) * 9) *
+                  10
+              ) / 10,
+        sources:
+          Array.isArray(ingredient.sources) && ingredient.sources.length > 0
+            ? ingredient.sources.filter(
+                (source): source is string => typeof source === "string" && source.trim().length > 0
+              )
+            : undefined,
         unit: typeof ingredient.unit === "string" ? ingredient.unit.trim() : undefined,
         preparation:
           typeof ingredient.preparation === "string"
@@ -69,6 +87,7 @@ export const normalizeIngredientList = (
         carbs: 0,
         fats: 0,
         proteins: 0,
+        calories: 0,
       },
     ];
   }
@@ -87,5 +106,7 @@ export const isIngredientListValid = (ingredients: IngredientItem[]): boolean =>
       Number.isFinite(ingredient.fats) &&
       ingredient.fats >= 0 &&
       Number.isFinite(ingredient.proteins) &&
-      ingredient.proteins >= 0
+      ingredient.proteins >= 0 &&
+      Number.isFinite(ingredient.calories) &&
+      ingredient.calories >= 0
   );
