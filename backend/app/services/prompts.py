@@ -22,6 +22,8 @@ CLASSIFICATION_PROMPT = (
     '"itemCount"?: number, "hasLabel"?: boolean } }\n\n'
     "Rules:\n"
     "- Pick the single best-fit category.\n"
+    "- If multiple visible items are present, set `hints.itemCount` to an approximate count.\n"
+    "- For mixed packaged-product scenes (e.g. cartons + bottle), prefer `packaged_product` with itemCount.\n"
     "- Populate hints relevant to the chosen category; omit irrelevant keys.\n"
     "- Do not include markdown, code fences, or extra keys.\n"
 )
@@ -85,25 +87,33 @@ def build_packaged_product_prompt(
     prompt += SHARED_OUTPUT_SCHEMA
     prompt += "Strategy:\n"
     prompt += "1. Identify the product brand and exact name from packaging cues.\n"
+    item_count_hint: Optional[int] = None
     if hints:
         brand = hints.get("brand")
         product_name = hints.get("productName")
+        raw_item_count = hints.get("itemCount")
+        if isinstance(raw_item_count, (int, float)) and raw_item_count > 0:
+            item_count_hint = int(raw_item_count)
         if brand or product_name:
             prompt += (
                 f"   (Preliminary identification suggests: "
                 f"brand={brand or 'unknown'}, product={product_name or 'unknown'})\n"
             )
+        if item_count_hint:
+            prompt += f"   (Preliminary count suggests about {item_count_hint} visible packaged items)\n"
     prompt += (
-        "2. Search the web for the exact product's official nutrition facts per serving.\n"
-        "3. Use the real per-serving values from the official nutrition data you find.\n"
-        "4. Return the product as a SINGLE ingredient entry with the full product name "
-        '   (e.g. "Kinder Maxi King" or "Coca-Cola 330ml"), NOT decomposed into '
-        "   sub-ingredients like chocolate coating, caramel, nuts, etc.\n"
-        "5. Only split into multiple ingredients if the image shows a multi-item bundle "
-        "   or assortment with distinctly different products.\n"
-        "6. If you cannot confidently identify the product, state so in `analysis` "
+        "2. Count all visible packaged products in the scene, including bottled/canned/carton beverages.\n"
+        "3. Search the web for each identified product's official nutrition facts per serving.\n"
+        "4. Use real per-serving values from trusted product data.\n"
+        "5. Do NOT decompose branded products into sub-ingredients (no chocolate coating/caramel/nuts split).\n"
+        "6. For repeated identical items, either aggregate in one ingredient with quantity like "
+        '   "2 x 200 ml" or use separate entries, but totals MUST reflect all units shown.\n'
+        "7. For different products in the same photo (e.g., porridge cartons + non-alcoholic beer), "
+        "   return separate ingredient entries per product type.\n"
+        "8. If only one clearly identified packaged product is present, a single ingredient entry is correct.\n"
+        "9. If you cannot confidently identify a product, state so in `analysis` "
         "   and set `confidence` below 0.5.\n"
-        "7. Default to a single standard serving size unless the image suggests otherwise.\n\n"
+        "10. Default to standard serving sizes unless packaging suggests otherwise.\n\n"
         "IMPORTANT: Your response must be ONLY the raw JSON object, no markdown, "
         "no code fences, no explanation — just the JSON.\n\n"
     )

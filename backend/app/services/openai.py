@@ -161,6 +161,14 @@ def _compute_heuristic_confidence(
     return final
 
 
+def _get_item_count_hint(classification: ClassificationResult) -> Optional[int]:
+    """Get a normalized item-count hint from classifier metadata."""
+    raw = classification.hints.get("itemCount")
+    if isinstance(raw, (int, float)) and raw > 0:
+        return int(raw)
+    return None
+
+
 def _extract_response_text(response: Any) -> str:
     """Extract text content from a Responses API response.
 
@@ -332,6 +340,32 @@ async def analyze_food_image(
                 parsed_response = parse_response_content(ws_content)
                 result = NutritionResult(**parsed_response)
                 logger.info("[analyze] Web search analysis succeeded")
+
+                # If classifier says there are multiple visible items, but the model
+                # returned only one ingredient, run a stricter second pass.
+                item_count_hint = _get_item_count_hint(classification)
+                if item_count_hint and item_count_hint >= 2 and len(result.ingredients) < 2:
+                    logger.warning(
+                        "[analyze] Potential undercount: classifier itemCount=%d but ingredients=%d. Retrying with explicit multi-item instruction.",
+                        item_count_hint,
+                        len(result.ingredients),
+                    )
+                    strict_multi_item_prompt = (
+                        f"{prompt_text}\n"
+                        f"Additional instruction: classifier estimated about {item_count_hint} visible packaged items. "
+                        "Your output MUST account for all visible items. Include beverages if present. "
+                        "For repeated identical products, use quantity like '2 x 200 ml' (or separate entries), "
+                        "and ensure total macros/calories include every visible unit."
+                    )
+                    retry_content = await _analyze_with_web_search(
+                        client, image_data, strict_multi_item_prompt
+                    )
+                    retry_parsed = parse_response_content(retry_content)
+                    retry_result = NutritionResult(**retry_parsed)
+                    if len(retry_result.ingredients) >= len(result.ingredients):
+                        result = retry_result
+                        parsed_response = retry_parsed
+                        logger.info("[analyze] Multi-item retry produced improved ingredient list")
             except Exception as ws_err:
                 logger.warning(
                     "[analyze] Web search path failed (%s), falling back to Chat Completions",

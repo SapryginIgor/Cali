@@ -15,12 +15,22 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
     let cancelled = false;
 
-    void supabase.auth.getSession().then(({ data: { session: next } }) => {
-      if (!cancelled) {
-        setSession(next);
-        setLoading(false);
-      }
-    });
+    void supabase.auth
+      .getSession()
+      .then(({ data: { session: next } }) => {
+        if (!cancelled) {
+          setSession(next);
+          setLoading(false);
+        }
+      })
+      .catch((error) => {
+        // Keep the app usable when the network blocks Supabase during startup.
+        console.warn("[Auth] Failed to fetch session during startup:", error);
+        if (!cancelled) {
+          setSession(null);
+          setLoading(false);
+        }
+      });
 
     const {
       data: { subscription },
