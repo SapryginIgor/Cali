@@ -229,8 +229,16 @@ function normalizeIngredientsFromApi(raw: unknown): IngredientItem[] {
       const data = item as Record<string, unknown>;
       const name = typeof data.name === "string" ? data.name.trim() : "";
       const quantity = typeof data.quantity === "string" ? data.quantity.trim() : "";
+      const placeholderValues = new Set(["-", "—", "_", "n/a", "na", "none", "unknown", "null"]);
+      const nameLower = name.toLowerCase();
+      const quantityLower = quantity.toLowerCase();
 
-      if (!name || !quantity) {
+      if (
+        !name ||
+        !quantity ||
+        placeholderValues.has(nameLower) ||
+        placeholderValues.has(quantityLower)
+      ) {
         return null;
       }
 

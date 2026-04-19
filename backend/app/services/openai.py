@@ -23,6 +23,11 @@ from app.services._openai_client import get_openai_client
 logger = logging.getLogger(__name__)
 
 
+def _is_placeholder_text(value: str) -> bool:
+    normalized = value.strip().lower()
+    return normalized in {"-", "—", "_", "n/a", "na", "none", "unknown", "null"}
+
+
 async def classify_food_image(
     image_base64: Optional[str] = None,
     description: Optional[str] = None,
@@ -167,6 +172,39 @@ def _get_item_count_hint(classification: ClassificationResult) -> Optional[int]:
     if isinstance(raw, (int, float)) and raw > 0:
         return int(raw)
     return None
+
+
+def _reconcile_nutrition_totals(result: NutritionResult) -> NutritionResult:
+    """Reconcile top-level totals with ingredient totals when they diverge heavily."""
+    if not result.ingredients:
+        return result
+
+    ing_carbs = sum(i.carbs for i in result.ingredients)
+    ing_fats = sum(i.fats for i in result.ingredients)
+    ing_proteins = sum(i.proteins for i in result.ingredients)
+    derived_calories = ing_carbs * 4 + ing_proteins * 4 + ing_fats * 9
+
+    macro_divergence = (
+        abs(result.carbs - ing_carbs) > 0.5
+        or abs(result.fats - ing_fats) > 0.5
+        or abs(result.protein - ing_proteins) > 0.5
+    )
+    calories_divergence = abs(result.calories - derived_calories) > 15
+
+    if macro_divergence or calories_divergence:
+        logger.warning(
+            "[normalize] Reconciling totals from ingredients. "
+            "reported(c=%.1f,f=%.1f,p=%.1f,kcal=%.1f) -> "
+            "ingredients(c=%.1f,f=%.1f,p=%.1f,kcal=%.1f)",
+            result.carbs, result.fats, result.protein, result.calories,
+            ing_carbs, ing_fats, ing_proteins, derived_calories,
+        )
+        result.carbs = round(ing_carbs, 1)
+        result.fats = round(ing_fats, 1)
+        result.protein = round(ing_proteins, 1)
+        result.calories = round(derived_calories)
+
+    return result
 
 
 def _extract_response_text(response: Any) -> str:
@@ -400,6 +438,7 @@ async def analyze_food_image(
             )
 
         result.ingredients = normalize_ingredients(result.ingredients, description)
+        result = _reconcile_nutrition_totals(result)
         result.foodCategory = classification.category
         result.confidence = _compute_heuristic_confidence(result, classification)
 
@@ -524,6 +563,8 @@ def normalize_ingredients(
             if not isinstance(name, str) or not name.strip():
                 continue
             if not isinstance(quantity, str) or not quantity.strip():
+                continue
+            if _is_placeholder_text(name) or _is_placeholder_text(quantity):
                 continue
             if not isinstance(carbs, (int, float)) or carbs < 0:
                 continue
