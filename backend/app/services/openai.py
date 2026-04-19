@@ -9,7 +9,7 @@ import time
 from urllib.parse import urlparse
 from typing import Any, Optional
 
-from openai import APIError
+from openai import APIError, APITimeoutError
 
 from app.models.api import (
     ClassificationResult,
@@ -517,15 +517,20 @@ async def analyze_food_image(
 
         return result
 
+    except APITimeoutError:
+        logger.error("[pipeline] OpenAI API timeout")
+        raise AppError(503, "Request timed out")
+
     except APIError as e:
-        if e.status_code == 401:
+        status_code = getattr(e, "status_code", None)
+        if status_code == 401:
             logger.error("[pipeline] OpenAI authentication error")
             raise AppError(500, "Authentication failed")
-        elif e.status_code == 429:
+        elif status_code == 429:
             logger.error("[pipeline] OpenAI rate limit exceeded")
             raise AppError(503, "Service temporarily unavailable")
         else:
-            logger.error("[pipeline] OpenAI API error: %s", e.message)
+            logger.error("[pipeline] OpenAI API error: %s", getattr(e, "message", str(e)))
             raise AppError(503, "Service temporarily unavailable")
 
     except TimeoutError:
