@@ -111,8 +111,18 @@ async function callBackendAPI(
     console.log("[Cali API] Backend response status:", response.status, response.statusText);
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+      const rawText = await response.text().catch(() => "");
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      if (rawText) {
+        try {
+          const parsed = JSON.parse(rawText) as { message?: string; detail?: string };
+          errorMessage = parsed.message || parsed.detail || rawText;
+        } catch {
+          errorMessage = rawText;
+        }
+      }
+      console.error("[Cali API] Backend error body:", rawText || "(empty)");
+      throw new Error(errorMessage);
     }
 
     const data = await response.json();
@@ -295,8 +305,18 @@ export async function editLogWithAI(
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+      const rawText = await response.text().catch(() => "");
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      if (rawText) {
+        try {
+          const parsed = JSON.parse(rawText) as { message?: string; detail?: string };
+          errorMessage = parsed.message || parsed.detail || rawText;
+        } catch {
+          errorMessage = rawText;
+        }
+      }
+      console.error("[Cali API] Backend error body:", rawText || "(empty)");
+      throw new Error(errorMessage);
     }
 
     const data = await response.json();
