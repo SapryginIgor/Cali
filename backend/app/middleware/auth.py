@@ -27,8 +27,20 @@ def _build_ec_public_key() -> Optional[EllipticCurvePublicKey]:
     if not _SUPABASE_JWT_JWKS_RAW:
         return None
     try:
-        jwk = json.loads(_SUPABASE_JWT_JWKS_RAW)
-        return ECAlgorithm.from_jwk(jwk)
+        parsed = json.loads(_SUPABASE_JWT_JWKS_RAW)
+
+        # Accept either a single JWK object or a JWKS document with `keys`.
+        # Supabase /auth/v1/.well-known/jwks.json returns JWKS format.
+        if isinstance(parsed, dict) and "keys" in parsed:
+            keys = parsed.get("keys")
+            if isinstance(keys, list) and keys:
+                jwk = keys[0]
+            else:
+                return None
+        else:
+            jwk = parsed
+
+        return ECAlgorithm.from_jwk(json.dumps(jwk))
     except Exception:
         return None
 
