@@ -280,7 +280,8 @@ function normalizeIngredientsFromApi(raw: unknown): IngredientItem[] {
  */
 export async function editLogWithAI(
   ingredients: IngredientItem[],
-  correction: string
+  correction: string,
+  imageUri?: string
 ): Promise<NutritionResult> {
   if (!BACKEND_URL) {
     throw new Error("Backend URL not configured");
@@ -304,10 +305,15 @@ export async function editLogWithAI(
   }
 
   try {
+    const imageBase64 = imageUri ? await imageUriToBase64(imageUri) : null;
     const response = await fetch(url, {
       method: "POST",
       headers,
-      body: JSON.stringify({ ingredients, correction }),
+      body: JSON.stringify({
+        ingredients,
+        correction,
+        ...(imageBase64 ? { image: imageBase64 } : {}),
+      }),
       signal: controller.signal,
     });
     clearTimeout(timeoutId);

@@ -547,7 +547,12 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
 
     setEditAILoading(true);
     try {
-      const result = await editLogWithAI(editIngredients, correction);
+      const editingEntry = entries.find((entry) => entry.id === editingEntryId);
+      const result = await editLogWithAI(
+        editIngredients,
+        correction,
+        editingEntry?.imageUri
+      );
       setEditIngredients(result.ingredients);
       if (result.logName) setEditDescription(result.logName);
       setEditAICorrection("");

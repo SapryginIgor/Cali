@@ -143,7 +143,14 @@ async def edit_log_endpoint(
     except Exception as exc:
         raise AppError(400, f"Validation failed: {exc}")
 
-    result = await edit_log(edit_request.ingredients, edit_request.correction)
+    if edit_request.image and not validate_base64_image_format(edit_request.image):
+        raise AppError(400, "Unsupported image format. Supported formats: JPEG, PNG, WebP")
+
+    result = await edit_log(
+        edit_request.ingredients,
+        edit_request.correction,
+        edit_request.image,
+    )
     return AnalyzeFoodResponse(**result.model_dump())
 
 

@@ -232,7 +232,11 @@ def get_analysis_prompt(
     return fn(**kwargs), max_tokens
 
 
-def build_edit_log_prompt(ingredients_json: str, correction: str) -> str:
+def build_edit_log_prompt(
+    ingredients_json: str,
+    correction: str,
+    has_image: bool = False,
+) -> str:
     prompt = (
         "You are an expert nutritionist. The user has an existing meal log and wants "
         "to make a correction. You will receive the current ingredients as JSON and a "
@@ -246,8 +250,15 @@ def build_edit_log_prompt(ingredients_json: str, correction: str) -> str:
         "3. Return the COMPLETE updated ingredient list (not just the changes).\n"
         "4. Recalculate all macro values for modified ingredients.\n"
         "5. Keep unchanged ingredients as-is.\n"
-        "6. Set `confidence` based on how clear the correction is.\n\n"
+        "6. If correction asks to add missing item(s), ensure each newly added item has realistic serving and macros.\n"
+        "7. For packaged products (beer, soda, snacks, branded foods), prefer source-backed nutrition data over guesses.\n"
+        "8. If reliable product data is unavailable, clearly state uncertainty in `analysis` and lower `confidence`.\n"
+        "9. Set `confidence` based on how clear and verifiable the correction is.\n\n"
         f"Current ingredients:\n```json\n{ingredients_json}\n```\n\n"
         f"User's correction: {correction}\n\n"
     )
+    if has_image:
+        prompt += (
+            "An image is attached. Use it to verify missing visible items before updating ingredients.\n\n"
+        )
     return prompt

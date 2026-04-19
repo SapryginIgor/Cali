@@ -555,8 +555,13 @@ async def analyze_food_image(
 async def edit_log(
     ingredients: list[IngredientItem],
     correction: str,
+    image_base64: Optional[str] = None,
 ) -> NutritionResult:
-    """Apply a natural-language correction to existing ingredients using GPT-4.1."""
+    """Apply a natural-language correction to existing ingredients using GPT-4.1.
+
+    If an image is provided, the model can re-check visible items. For packaged
+    product additions, this path may use web search to reduce guessing.
+    """
     logger.info(
         "[edit_log] Starting edit: %d ingredients, correction=%r",
         len(ingredients), correction[:80],
@@ -569,16 +574,71 @@ async def edit_log(
             [ing.model_dump(exclude_none=True) for ing in ingredients],
             indent=2,
         )
-        prompt_text = build_edit_log_prompt(ingredients_json, correction)
+        image_data = ""
+        if image_base64:
+            image_data = image_base64.split(",")[1] if "," in image_base64 else image_base64
 
-        response = await client.chat.completions.create(
-            model="gpt-4.1",
-            messages=[{"role": "user", "content": prompt_text}],
-            response_format={"type": "json_object"},
-            max_tokens=1500,
+        prompt_text = build_edit_log_prompt(
+            ingredients_json,
+            correction,
+            has_image=bool(image_data),
         )
 
-        content = response.choices[0].message.content if response.choices else None
+        correction_lower = correction.lower()
+        packaged_keywords = (
+            "beer", "cola", "soda", "energy drink", "juice", "bottle", "can",
+            "packaged", "brand", "product", "snack", "fruto", "няня", "frutonyanya",
+        )
+        should_use_web_search = bool(image_data) and any(
+            keyword in correction_lower for keyword in packaged_keywords
+        )
+
+        content: Optional[str] = None
+        source_domains: list[str] = []
+
+        if should_use_web_search:
+            try:
+                input_content: list[dict[str, Any]] = [
+                    {"type": "input_text", "text": prompt_text},
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:image/jpeg;base64,{image_data}",
+                    },
+                ]
+                ws_response = await client.responses.create(
+                    model="gpt-4.1",
+                    input=[{"role": "user", "content": input_content}],
+                    tools=[{"type": "web_search"}],
+                )
+                if _has_web_search_calls(ws_response):
+                    source_domains = _extract_source_domains(ws_response)
+                    content = _extract_json_from_text(_extract_response_text(ws_response))
+                    logger.info(
+                        "[edit_log] web_search used for edit correction | sources=%s",
+                        source_domains if source_domains else "none",
+                    )
+                else:
+                    logger.warning("[edit_log] web_search tool not used in edit path; falling back to chat")
+            except Exception as ws_error:
+                logger.warning("[edit_log] web_search edit path failed (%s); falling back to chat", ws_error)
+
+        if content is None:
+            user_content: list[dict[str, Any]] = [{"type": "text", "text": prompt_text}]
+            if image_data:
+                user_content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{image_data}"},
+                    }
+                )
+            response = await client.chat.completions.create(
+                model="gpt-4.1",
+                messages=[{"role": "user", "content": user_content}],
+                response_format={"type": "json_object"},
+                max_tokens=1500,
+            )
+            content = response.choices[0].message.content if response.choices else None
+
         if not content:
             raise AppError(500, "No response from AI service")
 
@@ -592,6 +652,14 @@ async def edit_log(
             result = normalize_fallback(parsed, correction)
 
         result.ingredients = normalize_ingredients(result.ingredients, correction)
+        result = _reconcile_nutrition_totals(result)
+        if source_domains:
+            sources_note = f"Sources: {', '.join(source_domains[:3])}"
+            if result.mealNotes and result.mealNotes.strip():
+                if "sources:" not in result.mealNotes.lower():
+                    result.mealNotes = f"{result.mealNotes.strip()} | {sources_note}"
+            else:
+                result.mealNotes = sources_note
 
         elapsed_ms = int((time.monotonic() - t0) * 1000)
         logger.info("[edit_log] Complete in %dms, %d ingredients", elapsed_ms, len(result.ingredients))

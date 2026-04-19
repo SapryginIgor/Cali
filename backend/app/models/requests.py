@@ -49,3 +49,20 @@ class EditLogRequest(BaseModel):
     """Request model for AI-powered meal log editing"""
     ingredients: list[IngredientItem] = Field(..., min_length=1, description="Current ingredients to edit")
     correction: str = Field(..., min_length=1, max_length=500, description="Natural-language correction instruction")
+    image: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="Optional base64 image to re-check visible items during edit",
+    )
+
+    @field_validator("image")
+    @classmethod
+    def validate_optional_image_size(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+
+        image_data = v.split(",")[-1] if "," in v else v
+        max_base64_size = 13 * 1024 * 1024  # ~13MB for 10MB image
+        if len(image_data.encode("utf-8")) > max_base64_size:
+            raise ValueError("Image size exceeds 10MB limit")
+        return v
