@@ -56,8 +56,23 @@ async function imageUriToBase64(imageUri: string): Promise<string> {
   }
 }
 
-/** Request timeout in ms (backend + OpenAI can take 30–60s for vision). */
-const BACKEND_REQUEST_TIMEOUT_MS = 90_000;
+/** Request timeout in ms (backend + OpenAI can take 30–120s for vision/web-search). */
+const BACKEND_REQUEST_TIMEOUT_MS = 180_000;
+
+const NETWORK_RETRY_DELAY_MS = 1200;
+const NETWORK_RETRY_ATTEMPTS = 2;
+
+function isTransientNetworkError(error: unknown): boolean {
+  return (
+    error instanceof TypeError &&
+    typeof error.message === "string" &&
+    error.message.toLowerCase().includes("network request failed")
+  );
+}
+
+async function wait(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
  * Call backend API to analyze food (image and/or text description)
@@ -100,13 +115,34 @@ async function callBackendAPI(
     if (imageBase64) body.image = imageBase64;
     if (description) body.description = description;
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+    let response: Response | null = null;
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+        if (!isTransientNetworkError(error) || attempt === NETWORK_RETRY_ATTEMPTS) {
+          throw error;
+        }
+        console.warn(
+          `[Cali API] Transient network error on attempt ${attempt}/${NETWORK_RETRY_ATTEMPTS}, retrying...`
+        );
+        await wait(NETWORK_RETRY_DELAY_MS * attempt);
+      }
+    }
     clearTimeout(timeoutId);
+
+    if (!response) {
+      throw (lastError instanceof Error ? lastError : new Error("Backend request failed"));
+    }
 
     console.log("[Cali API] Backend response status:", response.status, response.statusText);
 
@@ -306,17 +342,38 @@ export async function editLogWithAI(
 
   try {
     const imageBase64 = imageUri ? await imageUriToBase64(imageUri) : null;
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        ingredients,
-        correction,
-        ...(imageBase64 ? { image: imageBase64 } : {}),
-      }),
-      signal: controller.signal,
-    });
+    let response: Response | null = null;
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            ingredients,
+            correction,
+            ...(imageBase64 ? { image: imageBase64 } : {}),
+          }),
+          signal: controller.signal,
+        });
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+        if (!isTransientNetworkError(error) || attempt === NETWORK_RETRY_ATTEMPTS) {
+          throw error;
+        }
+        console.warn(
+          `[Cali API] Edit request transient network error on attempt ${attempt}/${NETWORK_RETRY_ATTEMPTS}, retrying...`
+        );
+        await wait(NETWORK_RETRY_DELAY_MS * attempt);
+      }
+    }
     clearTimeout(timeoutId);
+
+    if (!response) {
+      throw (lastError instanceof Error ? lastError : new Error("Backend request failed"));
+    }
 
     if (!response.ok) {
       const rawText = await response.text().catch(() => "");
