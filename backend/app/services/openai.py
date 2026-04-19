@@ -6,6 +6,7 @@ Two-step classify-then-analyze pipeline using GPT-4.1 Vision.
 import json
 import logging
 import time
+from urllib.parse import urlparse
 from typing import Any, Optional
 
 from openai import APIError
@@ -223,6 +224,40 @@ def _extract_response_text(response: Any) -> str:
     raise AppError(500, "No text content in Responses API response")
 
 
+def _extract_source_domains(response: Any) -> list[str]:
+    """Extract cited source domains from Responses API annotations."""
+    domains: list[str] = []
+    for item in getattr(response, "output", []):
+        if getattr(item, "type", None) != "message":
+            continue
+        for block in getattr(item, "content", []):
+            annotations = getattr(block, "annotations", None) or []
+            for annotation in annotations:
+                url = (
+                    getattr(annotation, "url", None)
+                    or getattr(annotation, "source_url", None)
+                    or (annotation.get("url") if isinstance(annotation, dict) else None)
+                    or (annotation.get("source_url") if isinstance(annotation, dict) else None)
+                )
+                if not isinstance(url, str) or not url.strip():
+                    continue
+                try:
+                    domain = urlparse(url).netloc.lower()
+                    if domain and domain not in domains:
+                        domains.append(domain)
+                except Exception:
+                    continue
+    return domains
+
+
+def _has_web_search_calls(response: Any) -> bool:
+    """Check whether the model actually invoked web search tool calls."""
+    for item in getattr(response, "output", []):
+        if getattr(item, "type", None) == "web_search_call":
+            return True
+    return False
+
+
 def _extract_json_from_text(text: str) -> str:
     """Pull the JSON object out of free-text that may contain markdown fences."""
     import re
@@ -243,11 +278,11 @@ async def _analyze_with_web_search(
     client: Any,
     image_data: str,
     prompt_text: str,
-) -> str:
+) -> tuple[str, list[str]]:
     """Run analysis via the Responses API with the ``web_search`` tool.
 
     Used for ``packaged_product`` so the model can look up real nutrition
-    data online instead of guessing.  Returns the raw JSON text.
+    data online instead of guessing. Returns raw JSON text and source domains.
 
     Note: web_search is incompatible with JSON mode, so we rely on the
     prompt to enforce JSON output and extract it from free text.
@@ -272,12 +307,22 @@ async def _analyze_with_web_search(
     elapsed_ms = int((time.monotonic() - t0) * 1000)
     logger.info("[web_search] Response received in %dms", elapsed_ms)
 
+    used_search = _has_web_search_calls(response)
+    source_domains = _extract_source_domains(response)
+    logger.info(
+        "[web_search] Tool usage: web_search_calls=%s | sources=%s",
+        used_search,
+        source_domains if source_domains else "none",
+    )
+    if not used_search:
+        raise AppError(500, "Web search tool was not used for packaged product analysis")
+
     raw_text = _extract_response_text(response)
     logger.info("[web_search] Raw text: %s", raw_text)
 
     json_text = _extract_json_from_text(raw_text)
     logger.info("[web_search] Extracted JSON: %s", json_text)
-    return json_text
+    return json_text, source_domains
 
 
 async def analyze_food_image(
@@ -372,12 +417,19 @@ async def analyze_food_image(
         # --- Step 3a: Packaged products → Responses API with web search ---
         if classification.category == "packaged_product":
             try:
-                ws_content = await _analyze_with_web_search(
+                ws_content, source_domains = await _analyze_with_web_search(
                     client, image_data, prompt_text
                 )
                 parsed_response = parse_response_content(ws_content)
                 result = NutritionResult(**parsed_response)
                 logger.info("[analyze] Web search analysis succeeded")
+                if source_domains:
+                    sources_note = f"Sources: {', '.join(source_domains[:3])}"
+                    if result.mealNotes and result.mealNotes.strip():
+                        if "sources:" not in result.mealNotes.lower():
+                            result.mealNotes = f"{result.mealNotes.strip()} | {sources_note}"
+                    else:
+                        result.mealNotes = sources_note
 
                 # If classifier says there are multiple visible items, but the model
                 # returned only one ingredient, run a stricter second pass.
@@ -395,11 +447,20 @@ async def analyze_food_image(
                         "For repeated identical products, use quantity like '2 x 200 ml' (or separate entries), "
                         "and ensure total macros/calories include every visible unit."
                     )
-                    retry_content = await _analyze_with_web_search(
+                    retry_content, retry_sources = await _analyze_with_web_search(
                         client, image_data, strict_multi_item_prompt
                     )
                     retry_parsed = parse_response_content(retry_content)
                     retry_result = NutritionResult(**retry_parsed)
+                    if retry_sources:
+                        retry_sources_note = f"Sources: {', '.join(retry_sources[:3])}"
+                        if retry_result.mealNotes and retry_result.mealNotes.strip():
+                            if "sources:" not in retry_result.mealNotes.lower():
+                                retry_result.mealNotes = (
+                                    f"{retry_result.mealNotes.strip()} | {retry_sources_note}"
+                                )
+                        else:
+                            retry_result.mealNotes = retry_sources_note
                     if len(retry_result.ingredients) >= len(result.ingredients):
                         result = retry_result
                         parsed_response = retry_parsed
