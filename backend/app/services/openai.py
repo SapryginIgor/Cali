@@ -175,8 +175,17 @@ def _get_item_count_hint(classification: ClassificationResult) -> Optional[int]:
     return None
 
 
-def _reconcile_nutrition_totals(result: NutritionResult) -> NutritionResult:
-    """Reconcile top-level totals with ingredient totals when they diverge heavily."""
+def _reconcile_nutrition_totals(
+    result: NutritionResult,
+    prefer_reported_calories: bool = False,
+) -> NutritionResult:
+    """Derive macros from ingredients and optionally preserve reported calories.
+
+    - Macros (`carbs`, `fats`, `protein`) are always derived from final ingredients.
+    - Calories are derived from macros by default.
+    - If `prefer_reported_calories` is True (e.g. source-backed packaged product),
+      keep the model/source-reported calories when present.
+    """
     if not result.ingredients:
         return result
 
@@ -185,24 +194,36 @@ def _reconcile_nutrition_totals(result: NutritionResult) -> NutritionResult:
     ing_proteins = sum(i.proteins for i in result.ingredients)
     derived_calories = ing_carbs * 4 + ing_proteins * 4 + ing_fats * 9
 
-    macro_divergence = (
-        abs(result.carbs - ing_carbs) > 0.5
-        or abs(result.fats - ing_fats) > 0.5
-        or abs(result.protein - ing_proteins) > 0.5
+    reported_calories = result.calories
+    had_difference = (
+        abs(result.carbs - ing_carbs) > 0.01
+        or abs(result.fats - ing_fats) > 0.01
+        or abs(result.protein - ing_proteins) > 0.01
+        or abs(reported_calories - derived_calories) > 0.5
     )
-    calories_divergence = abs(result.calories - derived_calories) > 15
 
-    if macro_divergence or calories_divergence:
+    if had_difference:
         logger.warning(
-            "[normalize] Reconciling totals from ingredients. "
+            "[normalize] Overriding top-level totals from ingredients. "
             "reported(c=%.1f,f=%.1f,p=%.1f,kcal=%.1f) -> "
             "ingredients(c=%.1f,f=%.1f,p=%.1f,kcal=%.1f)",
             result.carbs, result.fats, result.protein, result.calories,
             ing_carbs, ing_fats, ing_proteins, derived_calories,
         )
-        result.carbs = round(ing_carbs, 1)
-        result.fats = round(ing_fats, 1)
-        result.protein = round(ing_proteins, 1)
+    else:
+        logger.info("[normalize] Totals already consistent with ingredient list")
+
+    result.carbs = round(ing_carbs, 1)
+    result.fats = round(ing_fats, 1)
+    result.protein = round(ing_proteins, 1)
+    if prefer_reported_calories and isinstance(reported_calories, (int, float)) and reported_calories > 0:
+        result.calories = round(float(reported_calories))
+        logger.info(
+            "[normalize] Preserving source-reported calories: %.1f (derived from macros would be %.1f)",
+            reported_calories,
+            derived_calories,
+        )
+    else:
         result.calories = round(derived_calories)
 
     return result
@@ -413,6 +434,7 @@ async def analyze_food_image(
 
         parsed_response: dict[str, Any] = {}
         result: Optional[NutritionResult] = None
+        has_source_backed_calories = False
 
         # --- Step 3a: Packaged products → Responses API with web search ---
         if classification.category == "packaged_product":
@@ -422,6 +444,7 @@ async def analyze_food_image(
                 )
                 parsed_response = parse_response_content(ws_content)
                 result = NutritionResult(**parsed_response)
+                has_source_backed_calories = True
                 logger.info("[analyze] Web search analysis succeeded")
                 if source_domains:
                     sources_note = f"Sources: {', '.join(source_domains[:3])}"
@@ -499,7 +522,10 @@ async def analyze_food_image(
             )
 
         result.ingredients = normalize_ingredients(result.ingredients, description)
-        result = _reconcile_nutrition_totals(result)
+        result = _reconcile_nutrition_totals(
+            result,
+            prefer_reported_calories=has_source_backed_calories and classification.category == "packaged_product",
+        )
         result.foodCategory = classification.category
         result.confidence = _compute_heuristic_confidence(result, classification)
 
@@ -600,6 +626,7 @@ async def edit_log(
 
         content: Optional[str] = None
         source_domains: list[str] = []
+        used_web_search_result = False
 
         if should_use_web_search:
             try:
@@ -618,6 +645,7 @@ async def edit_log(
                 if _has_web_search_calls(ws_response):
                     source_domains = _extract_source_domains(ws_response)
                     content = _extract_json_from_text(_extract_response_text(ws_response))
+                    used_web_search_result = True
                     logger.info(
                         "[edit_log] web_search used for edit correction | sources=%s",
                         source_domains if source_domains else "none",
@@ -657,7 +685,10 @@ async def edit_log(
             result = normalize_fallback(parsed, correction)
 
         result.ingredients = normalize_ingredients(result.ingredients, correction)
-        result = _reconcile_nutrition_totals(result)
+        result = _reconcile_nutrition_totals(
+            result,
+            prefer_reported_calories=used_web_search_result,
+        )
         if source_domains:
             sources_note = f"Sources: {', '.join(source_domains[:3])}"
             if result.mealNotes and result.mealNotes.strip():
