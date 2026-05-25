@@ -101,17 +101,22 @@ async def require_active_subscription(
     user_id: Annotated[str, Depends(verify_token)],
 ) -> str:
     """Reject if the user's trial has expired or subscription is inactive. Returns user_id."""
+    import asyncio
+
     if os.getenv("SKIP_SUBSCRIPTION_CHECK", "").lower() in ("1", "true"):
         return user_id
 
-    sb = _get_supabase_admin()
-    result = (
-        sb.table("profiles")
-        .select("subscription_status, trial_ends_at")
-        .eq("id", user_id)
-        .single()
-        .execute()
-    )
+    def _query():
+        sb = _get_supabase_admin()
+        return (
+            sb.table("profiles")
+            .select("subscription_status, trial_ends_at")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+
+    result = await asyncio.to_thread(_query)
 
     if not result.data:
         raise HTTPException(403, "Profile not found")

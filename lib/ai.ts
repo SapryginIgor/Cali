@@ -91,9 +91,6 @@ async function callBackendAPI(
   const url = `${BACKEND_URL}/api/analyze-food`;
   console.log("[Cali API] Sending request to backend:", url, "description:", description ? "yes" : "no");
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), BACKEND_REQUEST_TIMEOUT_MS);
-
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -110,21 +107,26 @@ async function callBackendAPI(
     console.log("[Cali API] Session retrieval failed:", e);
   }
 
-  try {
-    const body: Record<string, string> = {};
-    if (imageBase64) body.image = imageBase64;
-    if (description) body.description = description;
+  const body: Record<string, string> = {};
+  if (imageBase64) body.image = imageBase64;
+  if (description) body.description = description;
 
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(
+      () => reject(new Error("Request timed out. Check that the backend is running and reachable.")),
+      BACKEND_REQUEST_TIMEOUT_MS
+    )
+  );
+
+  try {
     let response: Response | null = null;
     let lastError: unknown = null;
     for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt += 1) {
       try {
-        response = await fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
+        response = await Promise.race([
+          fetch(url, { method: "POST", headers, body: JSON.stringify(body) }),
+          timeoutPromise,
+        ]);
         lastError = null;
         break;
       } catch (error) {
@@ -138,7 +140,6 @@ async function callBackendAPI(
         await wait(NETWORK_RETRY_DELAY_MS * attempt);
       }
     }
-    clearTimeout(timeoutId);
 
     if (!response) {
       throw (lastError instanceof Error ? lastError : new Error("Backend request failed"));
@@ -164,7 +165,6 @@ async function callBackendAPI(
     const data = await response.json();
     console.log("[Cali API] Backend response OK, data keys:", Object.keys(data));
 
-    // Validate response structure
     if (
       typeof data.carbs === "number" &&
       typeof data.protein === "number" &&
@@ -191,15 +191,8 @@ async function callBackendAPI(
       throw new Error("Invalid response format from backend");
     }
   } catch (error) {
-    clearTimeout(timeoutId);
     console.error("[Cali API] Backend request failed:", error);
-    if (error instanceof Error) {
-      if (error.name === "AbortError") {
-        throw new Error("Request timed out. Check that the backend is running and reachable.");
-      }
-      throw error;
-    }
-    throw new Error("Failed to call backend API");
+    throw error instanceof Error ? error : new Error("Failed to call backend API");
   }
 }
 
@@ -342,8 +335,6 @@ export async function editLogWithAI(
   }
 
   const url = `${BACKEND_URL}/api/edit-log`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), BACKEND_REQUEST_TIMEOUT_MS);
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -358,22 +349,29 @@ export async function editLogWithAI(
     console.log("[Cali API] Session retrieval failed:", e);
   }
 
+  const imageBase64 = imageUri ? await imageUriToBase64(imageUri) : null;
+
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("Request timed out.")), BACKEND_REQUEST_TIMEOUT_MS)
+  );
+
   try {
-    const imageBase64 = imageUri ? await imageUriToBase64(imageUri) : null;
     let response: Response | null = null;
     let lastError: unknown = null;
     for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt += 1) {
       try {
-        response = await fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            ingredients,
-            correction,
-            ...(imageBase64 ? { image: imageBase64 } : {}),
+        response = await Promise.race([
+          fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              ingredients,
+              correction,
+              ...(imageBase64 ? { image: imageBase64 } : {}),
+            }),
           }),
-          signal: controller.signal,
-        });
+          timeoutPromise,
+        ]);
         lastError = null;
         break;
       } catch (error) {
@@ -387,7 +385,6 @@ export async function editLogWithAI(
         await wait(NETWORK_RETRY_DELAY_MS * attempt);
       }
     }
-    clearTimeout(timeoutId);
 
     if (!response) {
       throw (lastError instanceof Error ? lastError : new Error("Backend request failed"));
@@ -430,14 +427,7 @@ export async function editLogWithAI(
       throw new Error("Invalid response format from backend");
     }
   } catch (error) {
-    clearTimeout(timeoutId);
-    if (error instanceof Error) {
-      if (error.name === "AbortError") {
-        throw new Error("Request timed out.");
-      }
-      throw error;
-    }
-    throw new Error("Failed to call backend API");
+    throw error instanceof Error ? error : new Error("Failed to call backend API");
   }
 }
 
