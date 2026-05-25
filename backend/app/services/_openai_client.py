@@ -3,6 +3,7 @@
 import os
 from typing import Optional
 
+import httpx
 from openai import AsyncOpenAI
 
 from app.exceptions import AppError
@@ -19,6 +20,10 @@ def get_openai_client() -> AsyncOpenAI:
         if not api_key:
             raise AppError(500, "OpenAI API key not configured")
 
-        _openai_client = AsyncOpenAI(api_key=api_key)
+        # Longer connect timeout for singbox proxy tunnel establishment
+        _openai_client = AsyncOpenAI(
+            api_key=api_key,
+            timeout=httpx.Timeout(timeout=120.0, connect=30.0),
+        )
 
     return _openai_client
