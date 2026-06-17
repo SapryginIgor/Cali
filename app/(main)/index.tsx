@@ -49,6 +49,7 @@ import {
   normalizeIngredientList,
   toIngredientSummary,
 } from "@/lib/ingredients";
+import { getFoodEmoji } from "@/lib/foodEmoji";
 
 const nutritionSchema = z.object({
   carbs: z.number().describe("Carbohydrates in grams"),
@@ -792,13 +793,17 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                         </View>
                       </View>
 
-                      {entry.imageUri && (
+                      {entry.imageUri ? (
                         <View style={styles.entryImageContainer}>
                           <Image
                             source={{ uri: entry.imageUri }}
                             style={styles.entryImage}
                             contentFit="cover"
                           />
+                        </View>
+                      ) : entry.analysisStatus !== "pending" && (
+                        <View style={styles.entryEmojiContainer}>
+                          <Text style={styles.entryEmojiLarge}>{getFoodEmoji(entry.description)}</Text>
                         </View>
                       )}
 
@@ -1571,6 +1576,19 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 200,
     backgroundColor: Colors.light.border,
+  },
+  entryEmojiContainer: {
+    height: 120,
+    borderRadius: 16,
+    backgroundColor: Colors.light.lightBlue,
+    alignItems: "center",
+    justifyContent: "center",
+    marginVertical: 4,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+  },
+  entryEmojiLarge: {
+    fontSize: 56,
   },
   entryDescription: {
     fontSize: 18,
