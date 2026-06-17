@@ -21,7 +21,7 @@ Cali is a meal-tracking mobile app that uses AI (OpenAI GPT-4 Vision) to analyze
 - `pytest` — run backend tests (`backend/tests/`)
 
 ### Docker
-- `docker compose up` — runs backend + singbox proxy (for OpenAI region restrictions)
+- `docker compose up` — runs the backend
 
 ## Architecture
 

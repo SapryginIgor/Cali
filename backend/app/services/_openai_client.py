@@ -20,10 +20,9 @@ def get_openai_client() -> AsyncOpenAI:
         if not api_key:
             raise AppError(500, "OpenAI API key not configured")
 
-        # Longer connect timeout for singbox proxy tunnel establishment
         _openai_client = AsyncOpenAI(
             api_key=api_key,
-            timeout=httpx.Timeout(timeout=120.0, connect=30.0),
+            timeout=httpx.Timeout(timeout=120.0, connect=10.0),
         )
 
     return _openai_client
