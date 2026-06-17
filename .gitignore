@@ -1,5 +1,9 @@
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
+# IDE / project
+.cursor/
+.claude/worktrees/
+
 # dependencies
 node_modules/
 
@@ -38,8 +42,16 @@ yarn-error.*
 *.tsbuildinfo
 .vercel
 
-.rork
-
 .env
-rork-eslint.config.js
 core
+
+# Backend
+backend/dist/
+backend/node_modules/
+backend/.env
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.pyc
+backend/.venv/
+backend/venv/
+backend/*.egg-info/

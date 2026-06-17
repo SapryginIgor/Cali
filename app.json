@@ -4,30 +4,33 @@
       "slug": "mealtrackai",
       "version": "1.0.0",
       "orientation": "portrait",
-      "icon": "./assets/images/icon.png",
-      "scheme": "rork-app",
+      "icon": "./assets/images/logo.png",
+      "scheme": "cali",
       "userInterfaceStyle": "automatic",
       "newArchEnabled": true,
       "splash": {
-        "image": "./assets/images/splash-icon.png",
+        "image": "./assets/images/logo.png",
         "resizeMode": "contain",
         "backgroundColor": "#ffffff"
       },
       "ios": {
         "supportsTablet": false,
-        "bundleIdentifier": "app.rork.mealtrackai",
+        "bundleIdentifier": "app.cali.mealtrackai",
         "infoPlist": {
           "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photos",
           "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera",
-          "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to access your microphone"
+          "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to access your microphone",
+          "NSAppTransportSecurity": {
+            "NSAllowsArbitraryLoads": true
+          }
         }
       },
       "android": {
         "adaptiveIcon": {
-          "foregroundImage": "./assets/images/adaptive-icon.png",
+          "foregroundImage": "./assets/images/logo.png",
           "backgroundColor": "#ffffff"
         },
-        "package": "app.rork.mealtrackai",
+        "package": "app.cali.mealtrackai",
         "permissions": [
           "CAMERA",
           "READ_EXTERNAL_STORAGE",
@@ -35,13 +38,13 @@
         ]
       },
       "web": {
-        "favicon": "./assets/images/favicon.png"
+        "favicon": "./assets/images/logo.png"
       },
       "plugins": [
         [
           "expo-router",
           {
-            "origin": "https://rork.com/"
+            "origin": "https://localhost:8081"
           }
         ],
         "expo-font",

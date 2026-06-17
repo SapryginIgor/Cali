@@ -1,10 +1,39 @@
-export type GoalType = "lose_weight" | "gain_muscle" | "maintain";
+export type SubscriptionStatus = "trialing" | "trial_expired" | "premium" | "cancelled";
+
+export interface Profile {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  updated_at: string;
+  subscription_status: SubscriptionStatus;
+  trial_started_at: string;
+  trial_ends_at: string;
+}
+
+export interface IngredientItem {
+  id: string;
+  name: string;
+  quantity: string;
+  carbs: number;
+  fats: number;
+  proteins: number;
+  calories: number;
+  sources?: string[];
+  unit?: string;
+  preparation?: string;
+  note?: string;
+}
 
 export interface FoodEntry {
   id: string;
   timestamp: number;
   description: string;
+  pendingDescription?: string;
+  mealNotes?: string;
+  ingredients: IngredientItem[];
   imageUri?: string;
+  analysisStatus?: "pending" | "completed" | "failed";
+  analysisError?: string;
   nutrition: {
     carbs: number;
     protein: number;
@@ -12,38 +41,6 @@ export interface FoodEntry {
     calories: number;
   };
   aiAnalysis?: string;
+  confidence?: number;
+  foodCategory?: string;
 }
-
-export interface DailyGoals {
-  carbs: number;
-  protein: number;
-  fats: number;
-  calories: number;
-}
-
-export interface UserProfile {
-  goal: GoalType;
-  dailyGoals: DailyGoals;
-  onboardingComplete: boolean;
-}
-
-export const DEFAULT_GOALS: Record<GoalType, DailyGoals> = {
-  lose_weight: {
-    carbs: 150,
-    protein: 120,
-    fats: 50,
-    calories: 1800,
-  },
-  gain_muscle: {
-    carbs: 250,
-    protein: 180,
-    fats: 70,
-    calories: 2800,
-  },
-  maintain: {
-    carbs: 200,
-    protein: 150,
-    fats: 60,
-    calories: 2200,
-  },
-};
