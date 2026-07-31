@@ -95,6 +95,17 @@ export const normalizeIngredientList = (
   return [];
 };
 
+export const formatIngredientLabel = (ingredient: IngredientItem): string => {
+  const qty = ingredient.quantity.trim();
+  const unit = ingredient.unit?.trim() ?? "";
+  const name = ingredient.name.trim();
+
+  if (!unit || qty.toLowerCase().includes(unit.toLowerCase())) {
+    return `${qty} ${name}`;
+  }
+  return `${qty} ${unit} ${name}`;
+};
+
 export const isIngredientListValid = (ingredients: IngredientItem[]): boolean =>
   ingredients.length > 0 &&
   ingredients.every(

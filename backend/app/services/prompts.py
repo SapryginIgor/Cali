@@ -43,7 +43,11 @@ SHARED_OUTPUT_SCHEMA = (
     "- Every ingredient MUST include numeric `calories` (kcal, >= 0).\n"
     "- Include `sources` for ingredients when known (especially packaged products searched online).\n"
     "- `logName` MUST be a short, human-friendly title (2-6 words).\n"
-    '- `quantity` should be concise (e.g. "120 g", "1 tbsp", "to taste").\n'
+    '- `quantity` is the numeric amount as a string (e.g. "120", "1", "2"). '
+    "Do NOT include units in `quantity`.\n"
+    '- `unit` is the measurement unit as a full word, never abbreviated '
+    '(e.g. "gram", "ml", "tablespoon", "cup", "piece", "slice"). '
+    "Always provide `unit` separately from `quantity`.\n"
     "- `analysis` should be brief and useful.\n"
     "- `confidence` is a number between 0.0 and 1.0 representing how certain you are.\n"
     "- `foodCategory` must be the category you were told this image belongs to.\n"

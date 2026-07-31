@@ -45,6 +45,7 @@ import { useApp } from "@/contexts/AppContext";
 import { Image } from "expo-image";
 import {
   createEmptyIngredient,
+  formatIngredientLabel,
   isIngredientListValid,
   normalizeIngredientList,
   toIngredientSummary,
@@ -275,7 +276,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             {
               type: "text",
               text:
-                "Analyze this meal image and return ONLY JSON with fields: carbs (number), protein (number), fats (number), calories (number), analysis (string), logName (string), ingredients (array of {id, name, quantity, carbs, fats, proteins, calories, sources?, unit?, preparation?, note?}), and optional mealNotes (string). Include one ingredient item per meal component. Name, quantity, carbs, fats, proteins, and calories are required for every ingredient. logName must be a short human-friendly title for the log." +
+                "Analyze this meal image and return ONLY JSON with fields: carbs (number), protein (number), fats (number), calories (number), analysis (string), logName (string), ingredients (array of {id, name, quantity, carbs, fats, proteins, calories, sources?, unit?, preparation?, note?}), and optional mealNotes (string). Include one ingredient item per meal component. Name, quantity, carbs, fats, proteins, and calories are required for every ingredient. logName must be a short human-friendly title for the log. IMPORTANT: quantity must be numeric only (e.g. \"240\", \"1\", \"2\"), and unit must be a separate field using full words, never abbreviated (e.g. \"gram\", \"ml\", \"tablespoon\", \"cup\", \"piece\"). Never put units inside quantity." +
                 (description ? ` Additional context: ${description}` : ""),
             },
             {
@@ -290,7 +291,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         {
           role: "user",
           content:
-            "Analyze this meal description and return ONLY JSON with fields: carbs, protein, fats, calories, analysis, logName, ingredients (array with id, name, quantity, carbs, fats, proteins, calories, optional sources), and optional mealNotes. logName must be a short human-friendly title for the log. " +
+            "Analyze this meal description and return ONLY JSON with fields: carbs, protein, fats, calories, analysis, logName, ingredients (array with id, name, quantity, carbs, fats, proteins, calories, unit, optional sources), and optional mealNotes. logName must be a short human-friendly title for the log. IMPORTANT: quantity must be numeric only (e.g. \"240\", \"1\"), and unit must be a separate field using full words, never abbreviated (e.g. \"gram\", \"ml\", \"tablespoon\", \"cup\", \"piece\"). Never put units inside quantity. " +
             `Description: ${description}`,
         },
       ];
@@ -801,7 +802,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                             contentFit="cover"
                           />
                         </View>
-                      ) : entry.analysisStatus !== "pending" && (
+                      ) : entry.analysisStatus === "pending" ? null : (
                         <View style={styles.entryEmojiContainer}>
                           <Text style={styles.entryEmojiLarge}>{getFoodEmoji(entry.description)}</Text>
                         </View>
@@ -814,8 +815,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                           {entry.ingredients.map((ingredient) => (
                             <View key={ingredient.id} style={styles.ingredientChip}>
                               <Text style={styles.ingredientChipText}>
-                                {ingredient.quantity} {ingredient.unit ? `${ingredient.unit} ` : ""}
-                                {ingredient.name}
+                                {formatIngredientLabel(ingredient)}
                               </Text>
                               <Text style={styles.ingredientChipMacroText}>
                                 C {Math.round(ingredient.carbs)}g  F {Math.round(ingredient.fats)}g  P{" "}
@@ -1141,6 +1141,24 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
               </TouchableOpacity>
             </View>
           )}
+          {(inputText.trim().length > 0 || selectedImage !== null) && (
+            <TouchableOpacity
+              style={styles.inputBarCameraSmall}
+              onPress={handleOpenLogMeal}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Add photo"
+            >
+              <LinearGradient
+                colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.inputBarCameraSmallGradient}
+              >
+                <Camera color="#FFFFFF" size={18} />
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
           <TextInput
             style={styles.inputBarInput}
             placeholder="What did you eat?"
@@ -1163,22 +1181,24 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             </TouchableOpacity>
           )}
         </View>
-        <TouchableOpacity
-          style={styles.inputBarCameraBtn}
-          onPress={handleOpenLogMeal}
-          activeOpacity={0.85}
-          accessibilityRole="button"
-          accessibilityLabel="Add photo"
-        >
-          <LinearGradient
-            colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.inputBarCameraBtnGradient}
+        {inputText.trim().length === 0 && selectedImage === null && (
+          <TouchableOpacity
+            style={styles.inputBarCameraBtn}
+            onPress={handleOpenLogMeal}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Add photo"
           >
-            <Camera color="#FFFFFF" size={40} />
-          </LinearGradient>
-        </TouchableOpacity>
+            <LinearGradient
+              colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.inputBarCameraBtnGradient}
+            >
+              <Camera color="#FFFFFF" size={40} />
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
         <View style={{ height: safeInsets.bottom }} />
       </KeyboardAvoidingView>
     </View>
@@ -1662,6 +1682,19 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: Colors.light.border,
   },
+  inputBarCameraSmall: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: "hidden",
+    marginBottom: 0,
+  },
+  inputBarCameraSmallGradient: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   inputBarCameraBtn: {
     alignSelf: "center",
     marginTop: 6,
@@ -1689,7 +1722,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 10,
     gap: 10,
-    minHeight: 60,
+    minHeight: 52,
   },
   inputBarInput: {
     flex: 1,
@@ -1993,9 +2026,9 @@ const styles = StyleSheet.create({
   captionBar: {
     flexDirection: "row",
     alignItems: "flex-end",
-    paddingHorizontal: 12,
+    paddingHorizontal: 20,
     paddingVertical: 10,
-    gap: 8,
+    gap: 10,
     borderTopWidth: 1,
     borderTopColor: "rgba(255, 255, 255, 0.1)",
   },
