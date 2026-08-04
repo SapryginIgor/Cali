@@ -32,6 +32,7 @@ export interface FoodEntry {
   mealNotes?: string;
   ingredients: IngredientItem[];
   imageUri?: string;
+  productImageUrl?: string;
   analysisStatus?: "pending" | "completed" | "failed";
   analysisError?: string;
   nutrition: {

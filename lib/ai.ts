@@ -17,6 +17,7 @@ export interface NutritionResult {
   mealNotes?: string;
   confidence?: number;
   foodCategory?: string;
+  productImageUrl?: string;
 }
 
 // Backend API configuration
@@ -202,6 +203,10 @@ async function callBackendAPI(
         mealNotes: typeof data.mealNotes === "string" ? data.mealNotes : undefined,
         confidence: typeof data.confidence === "number" ? data.confidence : undefined,
         foodCategory: typeof data.foodCategory === "string" ? data.foodCategory : undefined,
+        productImageUrl:
+          typeof data.productImageUrl === "string" && data.productImageUrl.trim().startsWith("https://")
+            ? data.productImageUrl.trim()
+            : undefined,
       };
     } else {
       throw new Error("Invalid response format from backend");

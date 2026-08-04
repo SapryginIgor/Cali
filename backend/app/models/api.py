@@ -70,3 +70,7 @@ class NutritionResult(BaseModel):
     mealNotes: Optional[str] = Field(None, description="Optional short notes about the meal")
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="Analysis confidence score")
     foodCategory: Optional[str] = Field(None, description="Classified food category")
+    productImageUrl: Optional[str] = Field(
+        None,
+        description="Optional verified product image URL for packaged products",
+    )

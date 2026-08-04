@@ -76,9 +76,10 @@ const nutritionSchema = z.object({
         preparation: z.string().optional(),
         note: z.string().optional(),
       })
-    )
+  )
     .describe("Structured list of meal ingredients"),
   mealNotes: z.string().optional().describe("Optional short notes about the meal"),
+  productImageUrl: z.string().optional().describe("Optional verified packaged product image URL"),
 });
 
 const WEEKS_BEFORE = 104;
@@ -355,6 +356,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         pendingDescription: description.trim() || undefined,
         mealNotes: result.mealNotes,
         ingredients: normalizedIngredients,
+        productImageUrl: result.productImageUrl,
         analysisStatus: "completed",
         analysisError: undefined,
         nutrition: {
@@ -857,10 +859,10 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                         </View>
                       </View>
 
-                      {entry.imageUri ? (
+                      {entry.imageUri || entry.productImageUrl ? (
                         <View style={styles.entryImageContainer}>
                           <Image
-                            source={{ uri: entry.imageUri }}
+                            source={{ uri: entry.imageUri || entry.productImageUrl }}
                             style={styles.entryImage}
                             contentFit="cover"
                           />

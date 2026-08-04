@@ -36,7 +36,8 @@ SHARED_OUTPUT_SCHEMA = (
     '"ingredients": [{"id": string, "name": string, "quantity": string, '
     '"carbs": number, "fats": number, "proteins": number, "calories": number, '
     '"sources"?: string[], "unit"?: string, "preparation"?: string, "note"?: string}], '
-    '"mealNotes"?: string, "confidence": number, "foodCategory": string }\n\n'
+    '"mealNotes"?: string, "confidence": number, "foodCategory": string, '
+    '"productImageUrl"?: string }\n\n'
     "Field rules:\n"
     "- `ingredients` MUST include one item per identified ingredient/component.\n"
     "- Every ingredient MUST include non-empty `name` and `quantity`.\n"
@@ -52,6 +53,7 @@ SHARED_OUTPUT_SCHEMA = (
     "- `analysis` should be brief and useful.\n"
     "- `confidence` is a number between 0.0 and 1.0 representing how certain you are.\n"
     "- `foodCategory` must be the category you were told this image belongs to.\n"
+    "- `productImageUrl` is optional and should only be used for a verified official/trusted product image URL.\n"
     "- Do not include markdown, code fences, or extra keys.\n\n"
 )
 
@@ -126,6 +128,8 @@ def build_packaged_product_prompt(
         "11. Prefer official/manufacturer or trusted retailer/product sources. Do not guess values when source data is missing.\n"
         "12. Do not invent URLs, page slugs, product IDs, or citations. Leave each ingredient `sources` array empty; verified citations are attached by the server.\n"
         "13. If source data is missing, say the value is an estimate in `analysis` and set confidence below 0.7.\n\n"
+        "14. If the user did not provide a photo and an official/trusted product page exposes a direct product image URL, include it as `productImageUrl`. "
+        "Use only real https image URLs from official/manufacturer or trusted retailer pages. Leave it empty if unsure.\n\n"
         "IMPORTANT: Your response must be ONLY the raw JSON object, no markdown, "
         "no code fences, no explanation — just the JSON.\n\n"
     )

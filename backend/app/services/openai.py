@@ -357,6 +357,40 @@ def _set_verified_sources_on_ingredients(
     return result
 
 
+def _domain_root(domain: str) -> str:
+    parts = domain.lower().split(".")
+    if len(parts) < 2:
+        return domain.lower()
+    return ".".join(parts[-2:])
+
+
+def _verified_product_image_url(
+    image_url: Optional[str],
+    source_domains: list[str],
+) -> Optional[str]:
+    """Keep product images only when they line up with verified search sources."""
+    if not image_url:
+        return None
+    try:
+        parsed = urlparse(image_url)
+    except Exception:
+        return None
+
+    image_domain = parsed.netloc.lower()
+    if parsed.scheme != "https" or not image_domain:
+        return None
+
+    image_root = _domain_root(image_domain)
+    source_roots = {_domain_root(domain) for domain in source_domains}
+    if image_root not in source_roots:
+        logger.info(
+            "[web_search] Dropping product image URL from unverified domain: %s",
+            image_domain,
+        )
+        return None
+    return image_url
+
+
 def _has_web_search_calls(response: Any) -> bool:
     """Check whether the model actually invoked web search tool calls."""
     for item in getattr(response, "output", []):
@@ -531,6 +565,10 @@ async def analyze_food_image(
                 has_source_backed_calories = True
                 logger.info("[analyze] Web search analysis succeeded")
                 result = _set_verified_sources_on_ingredients(result, source_domains)
+                result.productImageUrl = _verified_product_image_url(
+                    result.productImageUrl,
+                    source_domains,
+                )
                 if source_domains:
                     sources_note = f"Sources: {', '.join(source_domains[:3])}"
                     if result.mealNotes and result.mealNotes.strip():
@@ -561,6 +599,10 @@ async def analyze_food_image(
                     retry_parsed = parse_response_content(retry_content)
                     retry_result = NutritionResult(**retry_parsed)
                     retry_result = _set_verified_sources_on_ingredients(retry_result, retry_sources)
+                    retry_result.productImageUrl = _verified_product_image_url(
+                        retry_result.productImageUrl,
+                        retry_sources,
+                    )
                     if retry_sources:
                         retry_sources_note = f"Sources: {', '.join(retry_sources[:3])}"
                         if retry_result.mealNotes and retry_result.mealNotes.strip():
