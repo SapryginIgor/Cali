@@ -48,20 +48,22 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     if (!isSupabaseConfigured) {
       throw new Error("Supabase is not configured");
     }
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       throw error;
     }
+    setSession(data.session);
   };
 
   const signUp = async (email: string, password: string) => {
     if (!isSupabaseConfigured) {
       throw new Error("Supabase is not configured");
     }
-    const { error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) {
       throw error;
     }
+    setSession(data.session);
   };
 
   const signOut = async () => {

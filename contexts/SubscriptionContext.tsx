@@ -15,7 +15,8 @@ const ENTITLEMENT_ID = "Cali Pro";
 
 const RC_IOS_KEY = process.env.EXPO_PUBLIC_RC_IOS_KEY ?? "";
 const RC_ANDROID_KEY = process.env.EXPO_PUBLIC_RC_ANDROID_KEY ?? "";
-const isRevenueCatConfigured = Boolean(
+const REVENUECAT_ENABLED = false;
+const isRevenueCatConfigured = REVENUECAT_ENABLED && Boolean(
   Platform.OS === "ios" ? RC_IOS_KEY : RC_ANDROID_KEY
 );
 
@@ -45,28 +46,6 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(
     const isPremium = __DEV__ || status === "trialing" || status === "premium";
     const isTrialExpired = status === "trial_expired";
 
-    // --- RevenueCat setup ---
-    useEffect(() => {
-      if (!user || !isRevenueCatConfigured || rcConfiguredRef.current) return;
-
-      const apiKey = Platform.OS === "ios" ? RC_IOS_KEY : RC_ANDROID_KEY;
-
-      Purchases.setLogLevel(LOG_LEVEL.WARN);
-      Purchases.configure({ apiKey, appUserID: user.id });
-      rcConfiguredRef.current = true;
-
-      void Purchases.getCustomerInfo().then((info) => syncEntitlements(info));
-    }, [user]);
-
-    // Customer info listener — sync RC state → Supabase
-    useEffect(() => {
-      if (!rcConfiguredRef.current) return;
-
-      const listener = (info: CustomerInfo) => syncEntitlements(info);
-      Purchases.addCustomerInfoUpdateListener(listener);
-      return () => Purchases.removeCustomerInfoUpdateListener(listener);
-    }, []);
-
     const syncEntitlements = useCallback(
       async (info: CustomerInfo) => {
         if (!user) return;
@@ -88,6 +67,30 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(
       },
       [user, dbStatus]
     );
+
+    // --- RevenueCat setup ---
+    useEffect(() => {
+      if (!user || !isRevenueCatConfigured || rcConfiguredRef.current) return;
+
+      const apiKey = Platform.OS === "ios" ? RC_IOS_KEY : RC_ANDROID_KEY;
+
+      Purchases.setLogLevel(LOG_LEVEL.WARN);
+      Purchases.configure({ apiKey, appUserID: user.id });
+      rcConfiguredRef.current = true;
+
+      void Purchases.getCustomerInfo().then((info) => syncEntitlements(info));
+    }, [user]);
+
+    // Customer info listener — sync RC state → Supabase
+    useEffect(() => {
+      if (!rcConfiguredRef.current) return;
+
+      const listener = (info: CustomerInfo) => syncEntitlements(info);
+      Purchases.addCustomerInfoUpdateListener(listener);
+      return () => {
+        Purchases.removeCustomerInfoUpdateListener(listener);
+      };
+    }, [syncEntitlements]);
 
     // RevenueCat logout on sign-out
     useEffect(() => {

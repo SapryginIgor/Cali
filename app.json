@@ -20,6 +20,14 @@
           "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photos",
           "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera",
           "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to access your microphone",
+          "NSLocationWhenInUseUsageDescription": "Allow $(PRODUCT_NAME) to access your location",
+          "NSLocationAlwaysUsageDescription": "Allow $(PRODUCT_NAME) to access your location",
+          "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow $(PRODUCT_NAME) to access your location",
+          "NSLocalNetworkUsageDescription": "Allow $(PRODUCT_NAME) to connect to the development server on your local network.",
+          "NSBonjourServices": [
+            "_expo._tcp",
+            "_react-native-packager._tcp"
+          ],
           "NSAppTransportSecurity": {
             "NSAllowsArbitraryLoads": true
           }
@@ -32,7 +40,11 @@
         },
         "package": "app.cali.mealtrackai",
         "permissions": [
+          "INTERNET",
+          "ACCESS_NETWORK_STATE",
           "CAMERA",
+          "ACCESS_FINE_LOCATION",
+          "ACCESS_COARSE_LOCATION",
           "READ_EXTERNAL_STORAGE",
           "WRITE_EXTERNAL_STORAGE"
         ]

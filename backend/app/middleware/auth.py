@@ -103,6 +103,11 @@ async def require_active_subscription(
     """Reject if the user's trial has expired or subscription is inactive. Returns user_id."""
     import asyncio
 
+    # Subscriptions are temporarily disabled while RevenueCat is not active in
+    # the app. Keep auth required, but allow signed-in users through.
+    if os.getenv("DISABLE_SUBSCRIPTION_ENFORCEMENT", "1").lower() in ("1", "true"):
+        return user_id
+
     if os.getenv("SKIP_SUBSCRIPTION_CHECK", "").lower() in ("1", "true"):
         return user_id
 

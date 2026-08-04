@@ -130,20 +130,20 @@ export default function LoginScreen() {
                 disabled={busy}
                 activeOpacity={0.8}
               >
-                {busy ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <LinearGradient
-                    colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.buttonGradient}
-                  >
+                <LinearGradient
+                  colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.buttonGradient}
+                >
+                  {busy ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
                     <Text style={styles.primaryButtonText}>
                       {isSignUp ? "Create account" : "Sign in"}
                     </Text>
-                  </LinearGradient>
-                )}
+                  )}
+                </LinearGradient>
               </TouchableOpacity>
 
               <View style={styles.divider}>

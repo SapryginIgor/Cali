@@ -70,6 +70,14 @@ function isTransientNetworkError(error: unknown): boolean {
   );
 }
 
+function describeFetchError(error: unknown): string {
+  if (error instanceof Error) {
+    const cause = "cause" in error ? (error as { cause?: unknown }).cause : undefined;
+    return `${error.name}: ${error.message}${cause ? ` | cause: ${String(cause)}` : ""}`;
+  }
+  return String(error);
+}
+
 async function wait(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -124,13 +132,21 @@ async function callBackendAPI(
     for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt += 1) {
       try {
         response = await Promise.race([
-          fetch(url, { method: "POST", headers, body: JSON.stringify(body) }),
+          fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+            cache: "no-store",
+          }),
           timeoutPromise,
         ]);
         lastError = null;
         break;
       } catch (error) {
         lastError = error;
+        console.warn(
+          `[Cali API] Backend fetch attempt ${attempt}/${NETWORK_RETRY_ATTEMPTS} failed: ${describeFetchError(error)}`
+        );
         if (!isTransientNetworkError(error) || attempt === NETWORK_RETRY_ATTEMPTS) {
           throw error;
         }
@@ -191,7 +207,7 @@ async function callBackendAPI(
       throw new Error("Invalid response format from backend");
     }
   } catch (error) {
-    console.error("[Cali API] Backend request failed:", error);
+    console.error("[Cali API] Backend request failed:", describeFetchError(error));
     throw error instanceof Error ? error : new Error("Failed to call backend API");
   }
 }
@@ -364,6 +380,7 @@ export async function editLogWithAI(
           fetch(url, {
             method: "POST",
             headers,
+            cache: "no-store",
             body: JSON.stringify({
               ingredients,
               correction,
@@ -376,6 +393,9 @@ export async function editLogWithAI(
         break;
       } catch (error) {
         lastError = error;
+        console.warn(
+          `[Cali API] Edit request attempt ${attempt}/${NETWORK_RETRY_ATTEMPTS} failed: ${describeFetchError(error)}`
+        );
         if (!isTransientNetworkError(error) || attempt === NETWORK_RETRY_ATTEMPTS) {
           throw error;
         }
@@ -427,6 +447,7 @@ export async function editLogWithAI(
       throw new Error("Invalid response format from backend");
     }
   } catch (error) {
+    console.error("[Cali API] Edit request failed:", describeFetchError(error));
     throw error instanceof Error ? error : new Error("Failed to call backend API");
   }
 }
@@ -484,7 +505,7 @@ export async function generateObject<T>(options: {
       console.log("[Cali API] Backend success, calories:", result.calories);
       return result as T;
     } catch (error) {
-      console.error("[Cali API] Backend failed, falling back to mock:", error);
+      console.error("[Cali API] Backend failed, falling back to mock:", describeFetchError(error));
       return estimateNutrition(description || "meal") as T;
     }
   }
