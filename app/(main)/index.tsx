@@ -30,8 +30,10 @@ import {
   Keyboard,
   ActivityIndicator,
   KeyboardAvoidingView,
+  LayoutAnimation,
   Platform,
   TouchableWithoutFeedback,
+  UIManager,
   useWindowDimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -82,6 +84,27 @@ const nutritionSchema = z.object({
 const WEEKS_BEFORE = 104;
 const WEEKS_AFTER = 104;
 const INITIAL_WEEK_INDEX = WEEKS_BEFORE;
+
+if (Platform.OS === "android") {
+  UIManager.setLayoutAnimationEnabledExperimental?.(true);
+}
+
+const runSoftLayoutTransition = () => {
+  LayoutAnimation.configureNext({
+    duration: 180,
+    create: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+      property: LayoutAnimation.Properties.opacity,
+    },
+    update: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+    },
+    delete: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+      property: LayoutAnimation.Properties.opacity,
+    },
+  });
+};
 
 const normalizeDate = (date: Date) => {
   const normalizedDate = new Date(date);
@@ -246,6 +269,7 @@ export default function TodayScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [inputText, setInputText] = useState("");
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [isInputFocused, setIsInputFocused] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
@@ -255,6 +279,8 @@ export default function TodayScreen() {
   const [editAILoading, setEditAILoading] = useState(false);
   const [editKeyboardHeight, setEditKeyboardHeight] = useState(0);
   const [selectedDate, setSelectedDate] = useState(todayDate);
+  const hasInputContent = inputText.trim().length > 0;
+  const isComposerCompact = isInputFocused || hasInputContent || selectedImage !== null;
 
   const calendarWeeks = useMemo(
     () => buildCalendarWeeks(todayDate, WEEKS_BEFORE, WEEKS_AFTER),
@@ -322,6 +348,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         return;
       }
 
+      runSoftLayoutTransition();
       updateFoodEntry({
         ...existingEntry,
         description: aiLogName,
@@ -346,6 +373,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
       if (!existingEntry) {
         return;
       }
+      runSoftLayoutTransition();
       updateFoodEntry({
         ...existingEntry,
         description: "Analysis failed",
@@ -360,6 +388,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
   }, [entries, getAnalysisMessages, updateFoodEntry]);
 
   const submitEntry = useCallback((imageUri: string | null, text: string) => {
+    runSoftLayoutTransition();
     const pendingId = Date.now().toString();
     const now = new Date();
     const entryDate = new Date(selectedDate);
@@ -393,13 +422,36 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     setModalVisible(true);
   }, [isPremium, presentPaywall, cameraPermission, requestCameraPermission]);
 
+  const handleInputTextChange = useCallback((nextText: string) => {
+    if (inputText.trim().length === 0 && nextText.trim().length > 0) {
+      runSoftLayoutTransition();
+    }
+    setInputText(nextText);
+  }, [inputText]);
+
+  const handleInputFocus = useCallback(() => {
+    if (!isInputFocused) {
+      runSoftLayoutTransition();
+    }
+    setIsInputFocused(true);
+  }, [isInputFocused]);
+
+  const handleInputBlur = useCallback(() => {
+    if (isInputFocused && inputText.trim().length === 0 && selectedImage === null) {
+      runSoftLayoutTransition();
+    }
+    setIsInputFocused(false);
+  }, [inputText, isInputFocused, selectedImage]);
+
   const handleCapture = useCallback(async () => {
     if (!cameraRef.current) return;
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
       if (photo) {
+        runSoftLayoutTransition();
         submitEntry(photo.uri, inputText);
         setInputText("");
+        setIsInputFocused(false);
         setModalVisible(false);
       }
     } catch (error) {
@@ -423,18 +475,22 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
       quality: 1,
     });
     if (!result.canceled) {
+      runSoftLayoutTransition();
       submitEntry(result.assets[0].uri, inputText);
       setInputText("");
+      setIsInputFocused(false);
       setModalVisible(false);
     }
   };
 
   const handleSubmit = () => {
     if (isSubmitting) return;
+    runSoftLayoutTransition();
     setIsSubmitting(true);
     submitEntry(selectedImage, inputText);
     setInputText("");
     setSelectedImage(null);
+    setIsInputFocused(false);
     setIsSubmitting(false);
   };
 
@@ -505,6 +561,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
   };
 
   const handleAddIngredient = () => {
+    runSoftLayoutTransition();
     setEditIngredients((prev) => [...prev, createEmptyIngredient()]);
   };
 
@@ -546,6 +603,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
   };
 
   const handleRemoveIngredient = (ingredientId: string) => {
+    runSoftLayoutTransition();
     setEditIngredients((prev) => prev.filter((ingredient) => ingredient.id !== ingredientId));
   };
 
@@ -561,6 +619,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         correction,
         editingEntry?.imageUri
       );
+      runSoftLayoutTransition();
       setEditIngredients(result.ingredients);
       if (result.logName) setEditDescription(result.logName);
       setEditAICorrection("");
@@ -599,6 +658,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     const fats = normalizedIngredients.reduce((sum, i) => sum + i.fats, 0);
     const calories = normalizedIngredients.reduce((sum, i) => sum + i.calories, 0);
 
+    runSoftLayoutTransition();
     updateFoodEntry({
       ...existingEntry,
       description: editDescription.trim() || toIngredientSummary(normalizedIngredients),
@@ -622,7 +682,10 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => deleteFoodEntry(entry.id),
+          onPress: () => {
+            runSoftLayoutTransition();
+            deleteFoodEntry(entry.id);
+          },
         },
       ]
     );
@@ -1127,7 +1190,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.inputBarWrapper}
       >
-        <View style={styles.inputBar}>
+        <View style={[styles.inputBar, isComposerCompact && styles.inputBarCompact]}>
           {selectedImage && (
             <View style={styles.inputBarThumb}>
               <Image source={{ uri: selectedImage }} style={styles.inputBarThumbImage} contentFit="cover" />
@@ -1141,7 +1204,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
               </TouchableOpacity>
             </View>
           )}
-          {(inputText.trim().length > 0 || selectedImage !== null) && (
+          {isComposerCompact && (
             <TouchableOpacity
               style={styles.inputBarCameraSmall}
               onPress={handleOpenLogMeal}
@@ -1155,7 +1218,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                 end={{ x: 1, y: 1 }}
                 style={styles.inputBarCameraSmallGradient}
               >
-                <Camera color="#FFFFFF" size={18} />
+                <Camera color="#FFFFFF" size={16} />
               </LinearGradient>
             </TouchableOpacity>
           )}
@@ -1164,12 +1227,14 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             placeholder="What did you eat?"
             placeholderTextColor={Colors.light.secondaryText}
             value={inputText}
-            onChangeText={setInputText}
+            onChangeText={handleInputTextChange}
+            onFocus={handleInputFocus}
+            onBlur={handleInputBlur}
             multiline
             maxLength={200}
             editable={!isSubmitting}
           />
-          {(inputText.trim().length > 0 || selectedImage !== null) && (
+          {(hasInputContent || selectedImage !== null) && (
             <TouchableOpacity
               style={[styles.inputBarSend, isSubmitting && styles.sendButtonDisabled]}
               onPress={handleSubmit}
@@ -1181,7 +1246,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             </TouchableOpacity>
           )}
         </View>
-        {inputText.trim().length === 0 && selectedImage === null && (
+        {!isComposerCompact && (
           <TouchableOpacity
             style={styles.inputBarCameraBtn}
             onPress={handleOpenLogMeal}
@@ -1199,7 +1264,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             </LinearGradient>
           </TouchableOpacity>
         )}
-        <View style={{ height: safeInsets.bottom }} />
+        <View style={{ height: isComposerCompact ? 8 : safeInsets.bottom }} />
       </KeyboardAvoidingView>
     </View>
   );
@@ -1683,9 +1748,9 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.light.border,
   },
   inputBarCameraSmall: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     overflow: "hidden",
     marginBottom: 0,
   },
@@ -1724,12 +1789,19 @@ const styles = StyleSheet.create({
     gap: 10,
     minHeight: 52,
   },
+  inputBarCompact: {
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 8,
+    gap: 12,
+  },
   inputBarInput: {
     flex: 1,
     backgroundColor: Colors.light.cardBackground,
     borderRadius: 22,
     paddingHorizontal: 18,
-    paddingVertical: 13,
+    paddingVertical: 11,
     fontSize: 18,
     color: Colors.light.text,
     maxHeight: 120,

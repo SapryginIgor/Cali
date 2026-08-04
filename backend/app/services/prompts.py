@@ -121,8 +121,8 @@ def build_packaged_product_prompt(
         "   and set `confidence` below 0.5.\n"
         "10. Default to standard serving sizes unless packaging suggests otherwise.\n\n"
         "11. Prefer official/manufacturer or trusted retailer/product sources. Do not guess values when source data is missing.\n"
-        "12. Fill each ingredient `sources` array with relevant source domains/labels used for that item.\n"
-        "13. Include a brief source hint in `mealNotes` (e.g., domain names used for lookup).\n\n"
+        "12. Do not invent URLs, page slugs, product IDs, or citations. Leave each ingredient `sources` array empty; verified citations are attached by the server.\n"
+        "13. If source data is missing, say the value is an estimate in `analysis` and set confidence below 0.7.\n\n"
         "IMPORTANT: Your response must be ONLY the raw JSON object, no markdown, "
         "no code fences, no explanation — just the JSON.\n\n"
     )

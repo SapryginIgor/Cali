@@ -1,10 +1,11 @@
 """
 OpenAI service for food image analysis.
-Two-step classify-then-analyze pipeline using GPT-4.1 Vision.
+Two-step classify-then-analyze pipeline using GPT-5.6 vision models.
 """
 
 import json
 import logging
+import os
 import time
 from urllib.parse import urlparse
 from typing import Any, Optional
@@ -23,10 +24,75 @@ from app.services._openai_client import get_openai_client
 
 logger = logging.getLogger(__name__)
 
+CLASSIFICATION_MODEL = os.getenv("OPENAI_CLASSIFICATION_MODEL", "gpt-5.6-luna")
+ANALYSIS_MODEL = os.getenv("OPENAI_ANALYSIS_MODEL", "gpt-5.6-terra")
+PACKAGED_PRODUCT_MODEL = os.getenv("OPENAI_PACKAGED_PRODUCT_MODEL", "gpt-5.6-sol")
+EDIT_MODEL = os.getenv("OPENAI_EDIT_MODEL", "gpt-5.6-terra")
+
+CLASSIFICATION_REASONING_EFFORT = os.getenv("OPENAI_CLASSIFICATION_REASONING_EFFORT", "low")
+ANALYSIS_REASONING_EFFORT = os.getenv("OPENAI_ANALYSIS_REASONING_EFFORT", "medium")
+PACKAGED_PRODUCT_REASONING_EFFORT = os.getenv("OPENAI_PACKAGED_PRODUCT_REASONING_EFFORT", "high")
+EDIT_REASONING_EFFORT = os.getenv("OPENAI_EDIT_REASONING_EFFORT", "medium")
+
 
 def _is_placeholder_text(value: str) -> bool:
     normalized = value.strip().lower()
     return normalized in {"-", "—", "_", "n/a", "na", "none", "unknown", "null"}
+
+
+def _responses_max_output_tokens(visible_budget: int) -> int:
+    """Responses max output includes reasoning tokens, so leave room above visible JSON."""
+    return max(visible_budget * 2, visible_budget + 1000)
+
+
+def _responses_input_content(
+    prompt_text: str,
+    image_data: Optional[str] = None,
+    image_detail: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    content: list[dict[str, Any]] = [{"type": "input_text", "text": prompt_text}]
+    if image_data:
+        content.append(
+            {
+                "type": "input_image",
+                "image_url": f"data:image/jpeg;base64,{image_data}",
+                "detail": image_detail or "auto",
+            }
+        )
+    return content
+
+
+async def _create_json_response(
+    client: Any,
+    *,
+    model: str,
+    prompt_text: str,
+    image_data: Optional[str] = None,
+    image_detail: Optional[str] = None,
+    max_output_tokens: int,
+    reasoning_effort: str,
+    tools: Optional[list[dict[str, Any]]] = None,
+    include: Optional[list[str]] = None,
+    json_mode: bool = True,
+) -> Any:
+    params: dict[str, Any] = {
+        "model": model,
+        "input": [
+            {
+                "role": "user",
+                "content": _responses_input_content(prompt_text, image_data, image_detail),
+            }
+        ],
+        "max_output_tokens": max_output_tokens,
+        "reasoning": {"effort": reasoning_effort},
+    }
+    if json_mode:
+        params["text"] = {"format": {"type": "json_object"}, "verbosity": "low"}
+    if tools:
+        params["tools"] = tools
+    if include:
+        params["include"] = include
+    return await client.responses.create(**params)
 
 
 async def classify_food_image(
@@ -49,45 +115,37 @@ async def classify_food_image(
         if "," in image_base64:
             image_data = image_base64.split(",")[1]
 
-        user_content: list[dict[str, Any]] = [
-            {"type": "text", "text": CLASSIFICATION_PROMPT},
-        ]
+        prompt_text = CLASSIFICATION_PROMPT
         if description:
-            user_content.append(
-                {"type": "text", "text": f"User description: {description}"}
-            )
-        user_content.append(
-            {
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{image_data}",
-                    "detail": "low",
-                },
-            }
-        )
+            prompt_text += f"\nUser description: {description}\n"
 
         logger.info(
-            "[classify] Sending classification request (detail=low, max_tokens=200, description=%s)",
+            "[classify] Sending classification request (model=%s, reasoning=%s, detail=low, description=%s)",
+            CLASSIFICATION_MODEL,
+            CLASSIFICATION_REASONING_EFFORT,
             "yes" if description else "no",
         )
         t0 = time.monotonic()
 
-        response = await client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=[{"role": "user", "content": user_content}],
-            response_format={"type": "json_object"},
-            max_tokens=200,
+        response = await _create_json_response(
+            client,
+            model=CLASSIFICATION_MODEL,
+            prompt_text=prompt_text,
+            image_data=image_data,
+            image_detail="low",
+            max_output_tokens=800,
+            reasoning_effort=CLASSIFICATION_REASONING_EFFORT,
         )
 
         elapsed_ms = int((time.monotonic() - t0) * 1000)
-        content = response.choices[0].message.content if response.choices else None
+        content = response.output_text
         usage = response.usage
 
         logger.info(
-            "[classify] Response received in %dms | tokens: prompt=%s completion=%s",
+            "[classify] Response received in %dms | tokens: input=%s output=%s",
             elapsed_ms,
-            usage.prompt_tokens if usage else "?",
-            usage.completion_tokens if usage else "?",
+            usage.input_tokens if usage else "?",
+            usage.output_tokens if usage else "?",
         )
         logger.info("[classify] Raw response: %s", content)
 
@@ -253,7 +311,24 @@ def _extract_response_text(response: Any) -> str:
 def _extract_source_domains(response: Any) -> list[str]:
     """Extract cited source domains from Responses API annotations."""
     domains: list[str] = []
+    def add_url(url: Any) -> None:
+        if not isinstance(url, str) or not url.strip():
+            return
+        try:
+            domain = urlparse(url).netloc.lower()
+            if domain and domain not in domains:
+                domains.append(domain)
+        except Exception:
+            return
+
     for item in getattr(response, "output", []):
+        if getattr(item, "type", None) == "web_search_call":
+            action = getattr(item, "action", None)
+            add_url(getattr(action, "url", None))
+            for source in getattr(action, "sources", None) or []:
+                add_url(getattr(source, "url", None))
+            continue
+
         if getattr(item, "type", None) != "message":
             continue
         for block in getattr(item, "content", []):
@@ -265,29 +340,19 @@ def _extract_source_domains(response: Any) -> list[str]:
                     or (annotation.get("url") if isinstance(annotation, dict) else None)
                     or (annotation.get("source_url") if isinstance(annotation, dict) else None)
                 )
-                if not isinstance(url, str) or not url.strip():
-                    continue
-                try:
-                    domain = urlparse(url).netloc.lower()
-                    if domain and domain not in domains:
-                        domains.append(domain)
-                except Exception:
-                    continue
+                add_url(url)
     return domains
 
 
-def _apply_default_sources_to_ingredients(
+def _set_verified_sources_on_ingredients(
     result: NutritionResult,
     source_domains: list[str],
 ) -> NutritionResult:
-    """Populate ingredient-level sources from extracted domains when missing."""
-    if not source_domains:
-        return result
+    """Replace model-written sources with domains from actual web-search citations."""
+    verified_sources = source_domains[:3]
 
     for ingredient in result.ingredients:
-        if ingredient.sources:
-            continue
-        ingredient.sources = source_domains[:3]
+        ingredient.sources = verified_sources or None
     return result
 
 
@@ -328,21 +393,23 @@ async def _analyze_with_web_search(
     Note: web_search is incompatible with JSON mode, so we rely on the
     prompt to enforce JSON output and extract it from free text.
     """
-    input_content: list[dict[str, Any]] = [
-        {"type": "input_text", "text": prompt_text},
-        {
-            "type": "input_image",
-            "image_url": f"data:image/jpeg;base64,{image_data}",
-        },
-    ]
-
-    logger.info("[web_search] Sending Responses API request with web_search tool…")
+    logger.info(
+        "[web_search] Sending Responses API request with web_search tool (model=%s, reasoning=%s)…",
+        PACKAGED_PRODUCT_MODEL,
+        PACKAGED_PRODUCT_REASONING_EFFORT,
+    )
     t0 = time.monotonic()
 
-    response = await client.responses.create(
-        model="gpt-4.1",
-        input=[{"role": "user", "content": input_content}],
+    response = await _create_json_response(
+        client,
+        model=PACKAGED_PRODUCT_MODEL,
+        prompt_text=prompt_text,
+        image_data=image_data,
+        max_output_tokens=3000,
+        reasoning_effort=PACKAGED_PRODUCT_REASONING_EFFORT,
         tools=[{"type": "web_search"}],
+        include=["web_search_call.action.sources"],
+        json_mode=False,
     )
 
     elapsed_ms = int((time.monotonic() - t0) * 1000)
@@ -404,38 +471,34 @@ async def analyze_food_image(
             if force_strict_json:
                 text += "\nPrevious response was invalid. Respond with valid JSON only."
 
-            user_content: list[dict[str, Any]] = [
-                {"type": "text", "text": text},
-            ]
-            if classification.category != "text_only":
-                user_content.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{image_data}",
-                        },
-                    }
-                )
+            request_image_data = image_data if classification.category != "text_only" else None
 
-            logger.info("[analyze] Sending analysis request (attempt=%s)...", "retry" if force_strict_json else "first")
+            logger.info(
+                "[analyze] Sending analysis request (model=%s, reasoning=%s, attempt=%s)...",
+                ANALYSIS_MODEL,
+                ANALYSIS_REASONING_EFFORT,
+                "retry" if force_strict_json else "first",
+            )
             t0 = time.monotonic()
 
-            response = await client.chat.completions.create(
-                model="gpt-4.1",
-                messages=[{"role": "user", "content": user_content}],
-                response_format={"type": "json_object"},
-                max_tokens=max_tokens,
+            response = await _create_json_response(
+                client,
+                model=ANALYSIS_MODEL,
+                prompt_text=text,
+                image_data=request_image_data,
+                max_output_tokens=_responses_max_output_tokens(max_tokens),
+                reasoning_effort=ANALYSIS_REASONING_EFFORT,
             )
 
             elapsed_ms = int((time.monotonic() - t0) * 1000)
-            content = response.choices[0].message.content if response.choices else None
+            content = response.output_text
             usage = response.usage
 
             logger.info(
-                "[analyze] Response received in %dms | tokens: prompt=%s completion=%s",
+                "[analyze] Response received in %dms | tokens: input=%s output=%s",
                 elapsed_ms,
-                usage.prompt_tokens if usage else "?",
-                usage.completion_tokens if usage else "?",
+                usage.input_tokens if usage else "?",
+                usage.output_tokens if usage else "?",
             )
             logger.info("[analyze] Raw response: %s", content)
 
@@ -466,8 +529,8 @@ async def analyze_food_image(
                 result = NutritionResult(**parsed_response)
                 has_source_backed_calories = True
                 logger.info("[analyze] Web search analysis succeeded")
+                result = _set_verified_sources_on_ingredients(result, source_domains)
                 if source_domains:
-                    result = _apply_default_sources_to_ingredients(result, source_domains)
                     sources_note = f"Sources: {', '.join(source_domains[:3])}"
                     if result.mealNotes and result.mealNotes.strip():
                         if "sources:" not in result.mealNotes.lower():
@@ -496,8 +559,8 @@ async def analyze_food_image(
                     )
                     retry_parsed = parse_response_content(retry_content)
                     retry_result = NutritionResult(**retry_parsed)
+                    retry_result = _set_verified_sources_on_ingredients(retry_result, retry_sources)
                     if retry_sources:
-                        retry_result = _apply_default_sources_to_ingredients(retry_result, retry_sources)
                         retry_sources_note = f"Sources: {', '.join(retry_sources[:3])}"
                         if retry_result.mealNotes and retry_result.mealNotes.strip():
                             if "sources:" not in retry_result.mealNotes.lower():
@@ -524,6 +587,7 @@ async def analyze_food_image(
                 parsed_response = parse_response_content(content)
                 try:
                     result = NutritionResult(**parsed_response)
+                    result = _set_verified_sources_on_ingredients(result, [])
                     logger.info("[analyze] Validation passed on attempt %d", attempt + 1)
                     break
                 except Exception as validation_error:
@@ -535,6 +599,7 @@ async def analyze_food_image(
         if result is None:
             logger.warning("[analyze] All attempts failed validation → using normalize_fallback")
             result = normalize_fallback(parsed_response, description)
+            result = _set_verified_sources_on_ingredients(result, [])
 
         if not result.analysis or not result.analysis.strip():
             result.analysis = "Food analysis completed."
@@ -652,17 +717,16 @@ async def edit_log(
 
         if should_use_web_search:
             try:
-                input_content: list[dict[str, Any]] = [
-                    {"type": "input_text", "text": prompt_text},
-                    {
-                        "type": "input_image",
-                        "image_url": f"data:image/jpeg;base64,{image_data}",
-                    },
-                ]
-                ws_response = await client.responses.create(
-                    model="gpt-4.1",
-                    input=[{"role": "user", "content": input_content}],
+                ws_response = await _create_json_response(
+                    client,
+                    model=PACKAGED_PRODUCT_MODEL,
+                    prompt_text=prompt_text,
+                    image_data=image_data,
+                    max_output_tokens=3000,
+                    reasoning_effort=PACKAGED_PRODUCT_REASONING_EFFORT,
                     tools=[{"type": "web_search"}],
+                    include=["web_search_call.action.sources"],
+                    json_mode=False,
                 )
                 if _has_web_search_calls(ws_response):
                     source_domains = _extract_source_domains(ws_response)
@@ -678,21 +742,15 @@ async def edit_log(
                 logger.warning("[edit_log] web_search edit path failed (%s); falling back to chat", ws_error)
 
         if content is None:
-            user_content: list[dict[str, Any]] = [{"type": "text", "text": prompt_text}]
-            if image_data:
-                user_content.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{image_data}"},
-                    }
-                )
-            response = await client.chat.completions.create(
-                model="gpt-4.1",
-                messages=[{"role": "user", "content": user_content}],
-                response_format={"type": "json_object"},
-                max_tokens=1500,
+            response = await _create_json_response(
+                client,
+                model=EDIT_MODEL,
+                prompt_text=prompt_text,
+                image_data=image_data or None,
+                max_output_tokens=_responses_max_output_tokens(1500),
+                reasoning_effort=EDIT_REASONING_EFFORT,
             )
-            content = response.choices[0].message.content if response.choices else None
+            content = response.output_text
 
         if not content:
             raise AppError(500, "No response from AI service")
@@ -711,8 +769,7 @@ async def edit_log(
             result,
             prefer_reported_calories=used_web_search_result,
         )
-        if source_domains:
-            result = _apply_default_sources_to_ingredients(result, source_domains)
+        result = _set_verified_sources_on_ingredients(result, source_domains)
         if source_domains:
             sources_note = f"Sources: {', '.join(source_domains[:3])}"
             if result.mealNotes and result.mealNotes.strip():
