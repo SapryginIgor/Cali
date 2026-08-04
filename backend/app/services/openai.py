@@ -104,15 +104,15 @@ async def classify_food_image(
     Uses a low-detail, low-token GPT-4.1-mini call for efficiency.
     Falls back to ``complex_meal`` on any failure.
     """
-    if not image_base64:
-        logger.info("[classify] No image provided → text_only")
+    if not image_base64 and not description:
+        logger.info("[classify] No image or description provided → text_only")
         return ClassificationResult(category="text_only", hints={})
 
     try:
         client = get_openai_client()
 
-        image_data = image_base64
-        if "," in image_base64:
+        image_data = image_base64 or ""
+        if image_data and "," in image_data:
             image_data = image_base64.split(",")[1]
 
         prompt_text = CLASSIFICATION_PROMPT
@@ -120,9 +120,10 @@ async def classify_food_image(
             prompt_text += f"\nUser description: {description}\n"
 
         logger.info(
-            "[classify] Sending classification request (model=%s, reasoning=%s, detail=low, description=%s)",
+            "[classify] Sending classification request (model=%s, reasoning=%s, image=%s, description=%s)",
             CLASSIFICATION_MODEL,
             CLASSIFICATION_REASONING_EFFORT,
+            "yes" if image_data else "no",
             "yes" if description else "no",
         )
         t0 = time.monotonic()
@@ -131,8 +132,8 @@ async def classify_food_image(
             client,
             model=CLASSIFICATION_MODEL,
             prompt_text=prompt_text,
-            image_data=image_data,
-            image_detail="low",
+            image_data=image_data or None,
+            image_detail="low" if image_data else None,
             max_output_tokens=800,
             reasoning_effort=CLASSIFICATION_REASONING_EFFORT,
         )
@@ -382,7 +383,7 @@ def _extract_json_from_text(text: str) -> str:
 
 async def _analyze_with_web_search(
     client: Any,
-    image_data: str,
+    image_data: Optional[str],
     prompt_text: str,
 ) -> tuple[str, list[str]]:
     """Run analysis via the Responses API with the ``web_search`` tool.

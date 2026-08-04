@@ -12,16 +12,17 @@ CLASSIFICATION_PROMPT = (
     "and classify it into exactly ONE category.\n\n"
     "Categories:\n"
     '- "nutrition_label" — a visible nutrition facts panel or ingredient list is legible\n'
-    '- "packaged_product" — branded/commercial packaging is visible but no readable nutrition label\n'
+    '- "packaged_product" — branded/commercial packaging is visible OR a branded product is named in text, but no readable nutrition label\n'
     '- "simple_food" — a single clearly identifiable food item (e.g. an apple, a boiled egg)\n'
     '- "complex_meal" — multiple food components or a composed dish\n'
     '- "beverage" — a drink in a cup, glass, or bottle\n'
-    '- "text_only" — no image provided, only a text description\n\n'
+    '- "text_only" — no image provided, only a generic text description without a clear branded product\n\n'
     "Return ONLY a JSON object with this shape:\n"
     '{ "category": string, "hints": { "brand"?: string, "productName"?: string, '
     '"itemCount"?: number, "hasLabel"?: boolean } }\n\n'
     "Rules:\n"
     "- Pick the single best-fit category.\n"
+    "- If the user text names a brand/product (examples: VkusVill, ВкусВилл, Coca-Cola, a product SKU), choose `packaged_product`.\n"
     "- If multiple visible items are present, set `hints.itemCount` to an approximate count.\n"
     "- For mixed packaged-product scenes (e.g. cartons + bottle), prefer `packaged_product` with itemCount.\n"
     "- Populate hints relevant to the chosen category; omit irrelevant keys.\n"
@@ -92,7 +93,9 @@ def build_packaged_product_prompt(
     )
     prompt += SHARED_OUTPUT_SCHEMA
     prompt += "Strategy:\n"
-    prompt += "1. Identify the product brand and exact name from packaging cues.\n"
+    prompt += "1. Identify the product brand and exact name from packaging cues and/or user text.\n"
+    if description:
+        prompt += "   If no image is attached, use the user text as the primary product identification signal.\n"
     item_count_hint: Optional[int] = None
     if hints:
         brand = hints.get("brand")
