@@ -25,14 +25,14 @@ from app.services._openai_client import get_openai_client
 logger = logging.getLogger(__name__)
 
 CLASSIFICATION_MODEL = os.getenv("OPENAI_CLASSIFICATION_MODEL", "gpt-5.6-luna")
-ANALYSIS_MODEL = os.getenv("OPENAI_ANALYSIS_MODEL", "gpt-5.6-terra")
-PACKAGED_PRODUCT_MODEL = os.getenv("OPENAI_PACKAGED_PRODUCT_MODEL", "gpt-5.6-sol")
-EDIT_MODEL = os.getenv("OPENAI_EDIT_MODEL", "gpt-5.6-terra")
+ANALYSIS_MODEL = os.getenv("OPENAI_ANALYSIS_MODEL", "gpt-5.6-luna")
+PACKAGED_PRODUCT_MODEL = os.getenv("OPENAI_PACKAGED_PRODUCT_MODEL", "gpt-5.6-terra")
+EDIT_MODEL = os.getenv("OPENAI_EDIT_MODEL", "gpt-5.6-luna")
 
-CLASSIFICATION_REASONING_EFFORT = os.getenv("OPENAI_CLASSIFICATION_REASONING_EFFORT", "low")
-ANALYSIS_REASONING_EFFORT = os.getenv("OPENAI_ANALYSIS_REASONING_EFFORT", "medium")
-PACKAGED_PRODUCT_REASONING_EFFORT = os.getenv("OPENAI_PACKAGED_PRODUCT_REASONING_EFFORT", "high")
-EDIT_REASONING_EFFORT = os.getenv("OPENAI_EDIT_REASONING_EFFORT", "medium")
+CLASSIFICATION_REASONING_EFFORT = os.getenv("OPENAI_CLASSIFICATION_REASONING_EFFORT", "none")
+ANALYSIS_REASONING_EFFORT = os.getenv("OPENAI_ANALYSIS_REASONING_EFFORT", "low")
+PACKAGED_PRODUCT_REASONING_EFFORT = os.getenv("OPENAI_PACKAGED_PRODUCT_REASONING_EFFORT", "medium")
+EDIT_REASONING_EFFORT = os.getenv("OPENAI_EDIT_REASONING_EFFORT", "low")
 
 
 def _is_placeholder_text(value: str) -> bool:
@@ -134,7 +134,7 @@ async def classify_food_image(
             prompt_text=prompt_text,
             image_data=image_data or None,
             image_detail="low" if image_data else None,
-            max_output_tokens=800,
+            max_output_tokens=500,
             reasoning_effort=CLASSIFICATION_REASONING_EFFORT,
         )
 
@@ -440,7 +440,7 @@ async def _analyze_with_web_search(
         model=PACKAGED_PRODUCT_MODEL,
         prompt_text=prompt_text,
         image_data=image_data,
-        max_output_tokens=3000,
+        max_output_tokens=1800,
         reasoning_effort=PACKAGED_PRODUCT_REASONING_EFFORT,
         tools=[{"type": "web_search"}],
         include=["web_search_call.action.sources"],
