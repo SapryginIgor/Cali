@@ -14,7 +14,8 @@ os.environ.setdefault("OPENAI_API_KEY", "test-key")
 
 from app.exceptions import AppError
 from app.main import app
-from app.models.api import IngredientItem, NutritionResult
+from app.middleware.auth import require_active_subscription
+from app.models.api import IngredientItem, NutritionResult, NutritionistChatResult
 
 
 PNG_1X1_BASE64 = (
@@ -46,7 +47,11 @@ def build_result() -> NutritionResult:
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    app.dependency_overrides[require_active_subscription] = lambda: "test-user-id"
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_json_base64_request_path(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -97,12 +102,65 @@ def test_multipart_request_path(client: TestClient, monkeypatch: pytest.MonkeyPa
     assert response.json()["analysis"] == "Balanced meal."
 
 
-def test_validation_error_missing_image(client: TestClient):
-    response = client.post("/api/analyze-food", json={"description": "No image"})
+def test_validation_error_missing_input(client: TestClient):
+    response = client.post("/api/analyze-food", json={})
     assert response.status_code == 400
     payload = response.json()
     assert "error" in payload
-    assert "Validation failed" in payload["message"]
+    assert "Either an image or a description is required" in payload["message"]
+
+
+def test_nutritionist_chat_request_path(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    async def fake_nutritionist_chat(messages, today_totals=None, recent_meals=None, goals=None):
+        assert messages[-1].content == "Help me improve my protein"
+        assert today_totals.protein == 42
+        assert recent_meals[0].description == "Chicken rice"
+        assert goals.goal == "Build muscle"
+        assert goals.allergies == "-"
+        return NutritionistChatResult(message="Add a protein anchor to your next meal.")
+
+    monkeypatch.setattr("app.routes.analyze.nutritionist_chat", fake_nutritionist_chat)
+
+    response = client.post(
+        "/api/nutritionist-chat",
+        json={
+            "messages": [
+                {"role": "assistant", "content": "What is your goal?"},
+                {"role": "user", "content": "Help me improve my protein"},
+            ],
+            "todayTotals": {
+                "carbs": 110,
+                "protein": 42,
+                "fats": 35,
+                "calories": 920,
+            },
+            "goals": {
+                "goal": "Build muscle",
+                "targetCalories": "-",
+                "targetProtein": "140g/day",
+                "dietaryPreference": "-",
+                "allergies": "-",
+                "activity": "Lifting 3x/week",
+                "notes": "-",
+            },
+            "recentMeals": [
+                {
+                    "timestamp": 1720000000000,
+                    "description": "Chicken rice",
+                    "nutrition": {
+                        "carbs": 55,
+                        "protein": 32,
+                        "fats": 12,
+                        "calories": 460,
+                    },
+                    "ingredients": ["Chicken", "Rice"],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Add a protein anchor to your next meal."
 
 
 def test_upstream_error_handling(client: TestClient, monkeypatch: pytest.MonkeyPatch):

@@ -3,23 +3,37 @@ OpenAI service for food image analysis.
 Two-step classify-then-analyze pipeline using GPT-5.6 vision models.
 """
 
+import asyncio
 import json
 import logging
 import os
+import re
 import time
-from urllib.parse import urlparse
+from html import unescape
+from urllib.parse import urljoin, urlparse
+from urllib.request import Request, urlopen
 from typing import Any, Optional
 
 from openai import APIError, APITimeoutError
 
 from app.models.api import (
+    ChatMessage,
     ClassificationResult,
+    FoodLogContextEntry,
     IngredientItem,
+    NutritionGoals,
+    NutritionistChatResult,
+    NutritionTotals,
     NutritionResult,
     VALID_FOOD_CATEGORIES,
 )
 from app.exceptions import AppError
-from app.services.prompts import CLASSIFICATION_PROMPT, get_analysis_prompt, build_edit_log_prompt
+from app.services.prompts import (
+    CLASSIFICATION_PROMPT,
+    build_edit_log_prompt,
+    build_grounded_nutrition_prompt,
+    get_analysis_prompt,
+)
 from app.services._openai_client import get_openai_client
 
 logger = logging.getLogger(__name__)
@@ -28,11 +42,140 @@ CLASSIFICATION_MODEL = os.getenv("OPENAI_CLASSIFICATION_MODEL", "gpt-5.6-luna")
 ANALYSIS_MODEL = os.getenv("OPENAI_ANALYSIS_MODEL", "gpt-5.6-luna")
 PACKAGED_PRODUCT_MODEL = os.getenv("OPENAI_PACKAGED_PRODUCT_MODEL", "gpt-5.6-terra")
 EDIT_MODEL = os.getenv("OPENAI_EDIT_MODEL", "gpt-5.6-luna")
+VISIBLE_EXTRACTION_MODEL = os.getenv("OPENAI_VISIBLE_EXTRACTION_MODEL", "gpt-4.1")
+NUTRITIONIST_CHAT_MODEL = os.getenv("OPENAI_NUTRITIONIST_CHAT_MODEL", "gpt-5.6-luna")
 
 CLASSIFICATION_REASONING_EFFORT = os.getenv("OPENAI_CLASSIFICATION_REASONING_EFFORT", "none")
 ANALYSIS_REASONING_EFFORT = os.getenv("OPENAI_ANALYSIS_REASONING_EFFORT", "low")
 PACKAGED_PRODUCT_REASONING_EFFORT = os.getenv("OPENAI_PACKAGED_PRODUCT_REASONING_EFFORT", "medium")
 EDIT_REASONING_EFFORT = os.getenv("OPENAI_EDIT_REASONING_EFFORT", "low")
+NUTRITIONIST_CHAT_REASONING_EFFORT = os.getenv("OPENAI_NUTRITIONIST_CHAT_REASONING_EFFORT", "low")
+
+INGREDIENT_ITEM_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "quantity": {"type": "string"},
+        "carbs": {"type": "number", "minimum": 0},
+        "fats": {"type": "number", "minimum": 0},
+        "proteins": {"type": "number", "minimum": 0},
+        "calories": {"type": "number", "minimum": 0},
+        "evidence": {"type": "string", "enum": ["visible", "user_text", "inferred"]},
+        "sources": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+        "unit": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "preparation": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "note": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+    },
+    "required": [
+        "id",
+        "name",
+        "quantity",
+        "carbs",
+        "fats",
+        "proteins",
+        "calories",
+        "evidence",
+        "sources",
+        "unit",
+        "preparation",
+        "note",
+    ],
+}
+
+NUTRITION_RESULT_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "carbs": {"type": "number", "minimum": 0},
+        "protein": {"type": "number", "minimum": 0},
+        "fats": {"type": "number", "minimum": 0},
+        "calories": {"type": "number", "minimum": 0},
+        "analysis": {"type": "string"},
+        "logName": {"type": "string"},
+        "ingredients": {"type": "array", "items": INGREDIENT_ITEM_JSON_SCHEMA, "minItems": 1},
+        "mealNotes": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "foodCategory": {"type": "string"},
+        "productImageUrl": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+    },
+    "required": [
+        "carbs",
+        "protein",
+        "fats",
+        "calories",
+        "analysis",
+        "logName",
+        "ingredients",
+        "mealNotes",
+        "confidence",
+        "foodCategory",
+        "productImageUrl",
+    ],
+}
+
+CLASSIFICATION_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "category": {"type": "string", "enum": list(VALID_FOOD_CATEGORIES)},
+        "hints": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "brand": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                "productName": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                "itemCount": {"anyOf": [{"type": "number"}, {"type": "null"}]},
+                "hasLabel": {"anyOf": [{"type": "boolean"}, {"type": "null"}]},
+            },
+            "required": ["brand", "productName", "itemCount", "hasLabel"],
+        },
+    },
+    "required": ["category", "hints"],
+}
+
+VISUAL_AUDIT_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "unsupportedIngredientIds": {"type": "array", "items": {"type": "string"}},
+        "unsupportedIngredientNames": {"type": "array", "items": {"type": "string"}},
+        "notes": {"type": "string"},
+    },
+    "required": ["unsupportedIngredientIds", "unsupportedIngredientNames", "notes"],
+}
+
+VISIBLE_INGREDIENT_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "logName": {"type": "string"},
+        "visibleIngredients": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "name": {"type": "string"},
+                    "evidence": {"type": "string"},
+                    "certainty": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+                "required": ["name", "evidence", "certainty"],
+            },
+        },
+        "uncertainVisibleItems": {"type": "array", "items": {"type": "string"}},
+        "rejectedCommonButUnseenItems": {"type": "array", "items": {"type": "string"}},
+        "notes": {"type": "string"},
+    },
+    "required": [
+        "logName",
+        "visibleIngredients",
+        "uncertainVisibleItems",
+        "rejectedCommonButUnseenItems",
+        "notes",
+    ],
+}
 
 
 def _is_placeholder_text(value: str) -> bool:
@@ -74,6 +217,7 @@ async def _create_json_response(
     tools: Optional[list[dict[str, Any]]] = None,
     include: Optional[list[str]] = None,
     json_mode: bool = True,
+    response_schema: Optional[dict[str, Any]] = None,
 ) -> Any:
     params: dict[str, Any] = {
         "model": model,
@@ -84,10 +228,24 @@ async def _create_json_response(
             }
         ],
         "max_output_tokens": max_output_tokens,
-        "reasoning": {"effort": reasoning_effort},
     }
-    if json_mode:
-        params["text"] = {"format": {"type": "json_object"}, "verbosity": "low"}
+    if not model.startswith("gpt-4.1"):
+        params["reasoning"] = {"effort": reasoning_effort}
+    if response_schema:
+        params["text"] = {
+            "format": {
+                "type": "json_schema",
+                "name": "response",
+                "schema": response_schema,
+                "strict": True,
+            }
+        }
+        if not model.startswith("gpt-4.1"):
+            params["text"]["verbosity"] = "low"
+    elif json_mode:
+        params["text"] = {"format": {"type": "json_object"}}
+        if not model.startswith("gpt-4.1"):
+            params["text"]["verbosity"] = "low"
     if tools:
         params["tools"] = tools
     if include:
@@ -136,6 +294,7 @@ async def classify_food_image(
             image_detail="low" if image_data else None,
             max_output_tokens=500,
             reasoning_effort=CLASSIFICATION_REASONING_EFFORT,
+            response_schema=CLASSIFICATION_JSON_SCHEMA,
         )
 
         elapsed_ms = int((time.monotonic() - t0) * 1000)
@@ -234,6 +393,104 @@ def _get_item_count_hint(classification: ClassificationResult) -> Optional[int]:
     return None
 
 
+def _visible_ingredients_to_grounded_json(ingredients: list[IngredientItem]) -> str:
+    return json.dumps(
+        [
+            {
+                "id": ingredient.id,
+                "name": ingredient.name,
+                "evidence": ingredient.evidence or "visible",
+                "note": ingredient.note,
+            }
+            for ingredient in ingredients
+        ],
+        ensure_ascii=False,
+    )
+
+
+async def _extract_visible_ingredients(
+    client: Any,
+    image_data: str,
+    description: Optional[str] = None,
+) -> tuple[str, list[IngredientItem], str]:
+    """Use GPT-4.1 as a literal image-only visible ingredient extractor."""
+    prompt_text = (
+        "Identify ONLY food ingredients that are directly visible in this image. "
+        "Do not estimate nutrition. Do not infer recipe ingredients. Do not add common toppings "
+        "or likely ingredients unless you can point to visible image evidence. In particular, "
+        "banana, granola, muesli, nuts, seeds, honey, and syrup must be rejected unless they are "
+        "clearly visible. If a white dairy component is ambiguous, use visual names such as "
+        "'white creamy dairy' or 'white curd-like dairy' instead of forcing a specific identity. "
+        "Return JSON only."
+    )
+    if description:
+        prompt_text += (
+            "\nUser text may clarify ambiguous visible items, but it must not make you add "
+            f"items that are not visible: {description}"
+        )
+
+    logger.info("[visible] Extracting visible ingredients (model=%s)", VISIBLE_EXTRACTION_MODEL)
+    t0 = time.monotonic()
+    response = await _create_json_response(
+        client,
+        model=VISIBLE_EXTRACTION_MODEL,
+        prompt_text=prompt_text,
+        image_data=image_data,
+        image_detail="high",
+        max_output_tokens=900,
+        reasoning_effort="none",
+        response_schema=VISIBLE_INGREDIENT_JSON_SCHEMA,
+    )
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    content = response.output_text
+    logger.info("[visible] Response received in %dms: %s", elapsed_ms, content)
+    if not content:
+        raise AppError(500, "No visible ingredient response from AI service")
+
+    parsed = json.loads(content)
+    raw_ingredients = parsed.get("visibleIngredients", [])
+    if not isinstance(raw_ingredients, list):
+        raw_ingredients = []
+
+    ingredients: list[IngredientItem] = []
+    for index, item in enumerate(raw_ingredients):
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not isinstance(name, str) or not name.strip() or _is_placeholder_text(name):
+            continue
+        evidence_text = item.get("evidence")
+        certainty = item.get("certainty")
+        note_parts = []
+        if isinstance(evidence_text, str) and evidence_text.strip():
+            note_parts.append(evidence_text.strip())
+        if isinstance(certainty, (int, float)):
+            note_parts.append(f"visual certainty {float(certainty):.2f}")
+        ingredients.append(
+            IngredientItem(
+                id=f"visible-{index}",
+                name=name.strip(),
+                quantity="1",
+                unit="serving",
+                carbs=0,
+                fats=0,
+                proteins=0,
+                calories=0,
+                evidence="visible",
+                note="; ".join(note_parts) if note_parts else None,
+            )
+        )
+
+    notes = parsed.get("notes")
+    if not ingredients:
+        raise AppError(422, "No visually supported food ingredients were found")
+    return (
+        parsed.get("logName", "Meal") if isinstance(parsed.get("logName"), str) else "Meal",
+        ingredients,
+        notes if isinstance(notes, str) else "",
+    )
+
+
 def _reconcile_nutrition_totals(
     result: NutritionResult,
     prefer_reported_calories: bool = False,
@@ -293,6 +550,272 @@ def _reconcile_nutrition_totals(
     return result
 
 
+def _remove_inferred_image_ingredients(
+    result: NutritionResult,
+    classification: ClassificationResult,
+) -> NutritionResult:
+    """Drop model-inferred ingredients from image-based analyses.
+
+    Inferred ingredients are useful for text-only assumptions, but in image
+    flows they are the exact failure mode that creates phantom toppings.
+    """
+    if classification.category == "text_only" or not result.ingredients:
+        return result
+
+    kept: list[IngredientItem] = []
+    removed: list[str] = []
+    for ingredient in result.ingredients:
+        if ingredient.evidence == "inferred":
+            removed.append(ingredient.name)
+            continue
+        kept.append(ingredient)
+
+    if not removed:
+        return result
+
+    result.ingredients = kept
+    removal_note = f"Removed unsupported inferred ingredients: {', '.join(removed)}."
+    result.analysis = (
+        f"{result.analysis.strip()} {removal_note}"
+        if result.analysis and result.analysis.strip()
+        else removal_note
+    )
+    result.confidence = min(result.confidence or 0.7, 0.65)
+    logger.warning("[guardrail] Removed inferred image ingredients: %s", removed)
+    return result
+
+
+def _apply_evidence_defaults(
+    result: NutritionResult,
+    classification: ClassificationResult,
+) -> NutritionResult:
+    default_evidence = "user_text" if classification.category == "text_only" else "visible"
+    for ingredient in result.ingredients:
+        if ingredient.evidence not in {"visible", "user_text", "inferred"}:
+            ingredient.evidence = default_evidence
+    return result
+
+
+HIGH_RISK_BOWL_TOPPING_KEYWORDS = {
+    "banana",
+    "granola",
+    "muesli",
+    "nut",
+    "nuts",
+    "almond",
+    "almonds",
+    "walnut",
+    "walnuts",
+    "pecan",
+    "pecans",
+    "seed",
+    "seeds",
+    "chia",
+    "flax",
+    "hemp",
+    "honey",
+    "syrup",
+    "maple",
+}
+
+BOWL_CONTEXT_KEYWORDS = {
+    "bowl",
+    "yogurt",
+    "yoghurt",
+    "oatmeal",
+    "porridge",
+    "cottage cheese",
+    "curd",
+    "quark",
+    "strawberries",
+    "strawberry",
+    "berries",
+}
+
+
+def _text_mentions_food(text: Optional[str], food_name: str) -> bool:
+    if not text:
+        return False
+    normalized_text = text.lower()
+    normalized_food = food_name.lower()
+    return any(part in normalized_text for part in normalized_food.replace("-", " ").split())
+
+
+def _has_bowl_context(result: NutritionResult) -> bool:
+    context = " ".join(
+        [
+            result.logName or "",
+            result.analysis or "",
+            " ".join(ingredient.name for ingredient in result.ingredients),
+        ]
+    ).lower()
+    return any(keyword in context for keyword in BOWL_CONTEXT_KEYWORDS)
+
+
+def _is_high_risk_bowl_topping(name: str) -> bool:
+    normalized_name = name.lower()
+    return any(keyword in normalized_name for keyword in HIGH_RISK_BOWL_TOPPING_KEYWORDS)
+
+
+def _remove_unmentioned_high_risk_bowl_toppings(
+    result: NutritionResult,
+    classification: ClassificationResult,
+    description: Optional[str],
+) -> NutritionResult:
+    """Deterministically remove common hallucinated bowl toppings.
+
+    This is intentionally stricter than the model audit. If the user did not
+    name a high-risk topping, image-only bowl analyses must not invent it.
+    """
+    if classification.category == "text_only" or not result.ingredients or not _has_bowl_context(result):
+        return result
+
+    kept: list[IngredientItem] = []
+    removed: list[str] = []
+    for ingredient in result.ingredients:
+        if _is_high_risk_bowl_topping(ingredient.name) and not _text_mentions_food(description, ingredient.name):
+            removed.append(ingredient.name)
+            continue
+        kept.append(ingredient)
+
+    if not removed:
+        return result
+
+    result.ingredients = kept
+    removal_note = f"Removed unconfirmed common bowl toppings: {', '.join(removed)}."
+    result.analysis = (
+        f"{result.analysis.strip()} {removal_note}"
+        if result.analysis and result.analysis.strip()
+        else removal_note
+    )
+    result.confidence = min(result.confidence or 0.7, 0.6)
+    logger.warning("[guardrail] Removed unmentioned high-risk bowl toppings: %s", removed)
+    return result
+
+
+def _remove_ungrounded_nutrition_ingredients(
+    result: NutritionResult,
+    grounded_ingredients: list[IngredientItem],
+) -> NutritionResult:
+    """Keep nutrition output aligned to the visible extraction pass."""
+    if not grounded_ingredients or not result.ingredients:
+        return result
+
+    grounded_ids = {ingredient.id for ingredient in grounded_ingredients}
+    kept: list[IngredientItem] = []
+    removed: list[str] = []
+    for ingredient in result.ingredients:
+        if ingredient.id not in grounded_ids:
+            removed.append(ingredient.name)
+            continue
+        kept.append(ingredient)
+
+    if not removed:
+        return result
+
+    result.ingredients = kept
+    removal_note = f"Removed ingredients not produced by visible extraction: {', '.join(removed)}."
+    result.analysis = (
+        f"{result.analysis.strip()} {removal_note}"
+        if result.analysis and result.analysis.strip()
+        else removal_note
+    )
+    result.confidence = min(result.confidence or 0.7, 0.65)
+    logger.warning("[guardrail] Removed ungrounded nutrition ingredients: %s", removed)
+    return result
+
+
+def _filter_unsupported_ingredients(
+    result: NutritionResult,
+    unsupported_ids: set[str],
+    unsupported_names: set[str],
+) -> NutritionResult:
+    if not result.ingredients or (not unsupported_ids and not unsupported_names):
+        return result
+
+    kept: list[IngredientItem] = []
+    removed: list[str] = []
+    normalized_unsupported_names = {name.strip().lower() for name in unsupported_names if name.strip()}
+
+    for ingredient in result.ingredients:
+        if ingredient.id in unsupported_ids or ingredient.name.strip().lower() in normalized_unsupported_names:
+            removed.append(ingredient.name)
+            continue
+        kept.append(ingredient)
+
+    if not removed:
+        return result
+
+    result.ingredients = kept
+    audit_note = f"Visual audit removed unsupported ingredients: {', '.join(removed)}."
+    result.analysis = (
+        f"{result.analysis.strip()} {audit_note}"
+        if result.analysis and result.analysis.strip()
+        else audit_note
+    )
+    result.confidence = min(result.confidence or 0.7, 0.65)
+    logger.warning("[visual_audit] Removed unsupported ingredients: %s", removed)
+    return result
+
+
+async def _audit_visual_ingredient_support(
+    client: Any,
+    image_data: str,
+    result: NutritionResult,
+    classification: ClassificationResult,
+) -> NutritionResult:
+    """Ask a vision model to remove listed ingredients that are not supported by the image."""
+    if classification.category == "text_only" or not image_data or not result.ingredients:
+        return result
+
+    ingredients_json = json.dumps(
+        [
+            {
+                "id": ingredient.id,
+                "name": ingredient.name,
+                "quantity": ingredient.quantity,
+                "evidence": ingredient.evidence,
+            }
+            for ingredient in result.ingredients
+        ],
+        ensure_ascii=False,
+    )
+    prompt_text = (
+        "You are a strict food-image ingredient auditor. Compare the image to the proposed "
+        "ingredient list. Return ingredients that are NOT visually supported and NOT explicitly "
+        "named by the user. Do not flag generic dairy/yogurt/cream if a white dairy component is "
+        "visible, but do flag common toppings such as banana, granola, nuts, seeds, honey, syrup, "
+        "or sauces when they are not clearly visible.\n\n"
+        "Return ONLY JSON with this exact shape:\n"
+        '{ "unsupportedIngredientIds": string[], "unsupportedIngredientNames": string[], "notes": string }\n\n'
+        f"Proposed ingredients:\n{ingredients_json}"
+    )
+
+    try:
+        response = await _create_json_response(
+            client,
+            model=ANALYSIS_MODEL,
+            prompt_text=prompt_text,
+            image_data=image_data,
+            image_detail="low",
+            max_output_tokens=600,
+            reasoning_effort=ANALYSIS_REASONING_EFFORT,
+            response_schema=VISUAL_AUDIT_JSON_SCHEMA,
+        )
+        content = response.output_text
+        if not content:
+            return result
+        parsed = json.loads(content)
+        raw_ids = parsed.get("unsupportedIngredientIds", [])
+        raw_names = parsed.get("unsupportedIngredientNames", [])
+        unsupported_ids = {item for item in raw_ids if isinstance(item, str)}
+        unsupported_names = {item for item in raw_names if isinstance(item, str)}
+        return _filter_unsupported_ingredients(result, unsupported_ids, unsupported_names)
+    except Exception as exc:
+        logger.warning("[visual_audit] Audit failed; keeping original ingredient list: %s", exc)
+        return result
+
+
 def _extract_response_text(response: Any) -> str:
     """Extract text content from a Responses API response.
 
@@ -309,16 +832,17 @@ def _extract_response_text(response: Any) -> str:
     raise AppError(500, "No text content in Responses API response")
 
 
-def _extract_source_domains(response: Any) -> list[str]:
-    """Extract cited source domains from Responses API annotations."""
-    domains: list[str] = []
+def _extract_source_urls(response: Any) -> list[str]:
+    """Extract cited source URLs from Responses API annotations."""
+    urls: list[str] = []
+
     def add_url(url: Any) -> None:
         if not isinstance(url, str) or not url.strip():
             return
         try:
-            domain = urlparse(url).netloc.lower()
-            if domain and domain not in domains:
-                domains.append(domain)
+            parsed = urlparse(url)
+            if parsed.scheme in {"http", "https"} and parsed.netloc and url not in urls:
+                urls.append(url)
         except Exception:
             return
 
@@ -342,6 +866,19 @@ def _extract_source_domains(response: Any) -> list[str]:
                     or (annotation.get("source_url") if isinstance(annotation, dict) else None)
                 )
                 add_url(url)
+    return urls
+
+
+def _source_domains_from_urls(source_urls: list[str]) -> list[str]:
+    """Convert cited source URLs into unique source domains."""
+    domains: list[str] = []
+    for url in source_urls:
+        try:
+            domain = urlparse(url).netloc.lower()
+        except Exception:
+            continue
+        if domain and domain not in domains:
+            domains.append(domain)
     return domains
 
 
@@ -391,6 +928,73 @@ def _verified_product_image_url(
     return image_url
 
 
+def _extract_meta_image_url(html: str) -> Optional[str]:
+    """Extract a likely product image URL from Open Graph/Twitter metadata."""
+    patterns = [
+        r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::secure_url)?["\']',
+        r'<meta[^>]+name=["\']twitter:image(?::src)?["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image(?::src)?["\']',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, html, flags=re.IGNORECASE)
+        if match:
+            return unescape(match.group(1).strip())
+    return None
+
+
+def _https_url(url: Optional[str]) -> Optional[str]:
+    if not url:
+        return None
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return None
+    if parsed.scheme == "https" and parsed.netloc:
+        return url
+    return None
+
+
+def _fetch_page_meta_image(source_url: str, source_domains: list[str]) -> Optional[str]:
+    try:
+        source_domain = urlparse(source_url).netloc.lower()
+        if source_domain not in source_domains:
+            return None
+        request = Request(
+            source_url,
+            headers={
+                "User-Agent": "Cali/1.0 (+https://cali.app)",
+                "Accept": "text/html,application/xhtml+xml",
+            },
+        )
+        with urlopen(request, timeout=5) as response:
+            content_type = response.headers.get("content-type", "")
+            if "text/html" not in content_type and "application/xhtml" not in content_type:
+                return None
+            html = response.read(256_000).decode("utf-8", errors="ignore")
+    except Exception as exc:
+        logger.info("[web_search] Could not fetch source metadata image from %s: %s", source_url, exc)
+        return None
+
+    metadata_image_url = _extract_meta_image_url(html)
+    if metadata_image_url:
+        metadata_image_url = urljoin(source_url, metadata_image_url)
+    return _https_url(metadata_image_url)
+
+
+async def _find_product_image_from_sources(
+    source_urls: list[str],
+    source_domains: list[str],
+) -> Optional[str]:
+    """Find an HTTPS product image from cited official/trusted source pages."""
+    for source_url in source_urls[:5]:
+        image_url = await asyncio.to_thread(_fetch_page_meta_image, source_url, source_domains)
+        if image_url:
+            logger.info("[web_search] Found product image from source metadata: %s", image_url)
+            return image_url
+    return None
+
+
 def _has_web_search_calls(response: Any) -> bool:
     """Check whether the model actually invoked web search tool calls."""
     for item in getattr(response, "output", []):
@@ -419,7 +1023,7 @@ async def _analyze_with_web_search(
     client: Any,
     image_data: Optional[str],
     prompt_text: str,
-) -> tuple[str, list[str]]:
+) -> tuple[str, list[str], list[str]]:
     """Run analysis via the Responses API with the ``web_search`` tool.
 
     Used for ``packaged_product`` so the model can look up real nutrition
@@ -451,7 +1055,8 @@ async def _analyze_with_web_search(
     logger.info("[web_search] Response received in %dms", elapsed_ms)
 
     used_search = _has_web_search_calls(response)
-    source_domains = _extract_source_domains(response)
+    source_urls = _extract_source_urls(response)
+    source_domains = _source_domains_from_urls(source_urls)
     logger.info(
         "[web_search] Tool usage: web_search_calls=%s | sources=%s",
         used_search,
@@ -465,7 +1070,7 @@ async def _analyze_with_web_search(
 
     json_text = _extract_json_from_text(raw_text)
     logger.info("[web_search] Extracted JSON: %s", json_text)
-    return json_text, source_domains
+    return json_text, source_domains, source_urls
 
 
 async def analyze_food_image(
@@ -492,13 +1097,42 @@ async def analyze_food_image(
         # --- Step 1: Classify ---
         classification = await classify_food_image(image_base64, description)
 
+        grounded_ingredients: list[IngredientItem] = []
+        visible_notes = ""
+        should_use_grounded_visible_pass = bool(image_data) and classification.category in {
+            "simple_food",
+            "complex_meal",
+            "beverage",
+        }
+
         # --- Step 2: Build category-specific prompt ---
-        prompt_text, max_tokens = get_analysis_prompt(
-            classification.category, description, classification.hints
-        )
+        if should_use_grounded_visible_pass:
+            visible_log_name, grounded_ingredients, visible_notes = await _extract_visible_ingredients(
+                client,
+                image_data,
+                description,
+            )
+            grounded_json = _visible_ingredients_to_grounded_json(grounded_ingredients)
+            prompt_text = build_grounded_nutrition_prompt(
+                grounded_json,
+                classification.category,
+                description,
+            )
+            prompt_text += (
+                f"Visible extraction suggested log name: {visible_log_name}\n"
+                f"Visible extraction notes: {visible_notes}\n\n"
+            )
+            max_tokens = 1200
+        else:
+            prompt_text, max_tokens = get_analysis_prompt(
+                classification.category, description, classification.hints
+            )
         logger.info(
-            "[analyze] Branch selected: category=%s | max_tokens=%d | prompt length=%d chars",
-            classification.category, max_tokens, len(prompt_text),
+            "[analyze] Branch selected: category=%s | grounded_visible=%s | max_tokens=%d | prompt length=%d chars",
+            classification.category,
+            "yes" if grounded_ingredients else "no",
+            max_tokens,
+            len(prompt_text),
         )
 
         async def make_request(force_strict_json: bool) -> str:
@@ -506,7 +1140,11 @@ async def analyze_food_image(
             if force_strict_json:
                 text += "\nPrevious response was invalid. Respond with valid JSON only."
 
-            request_image_data = image_data if classification.category != "text_only" else None
+            request_image_data = (
+                None
+                if grounded_ingredients or classification.category == "text_only"
+                else image_data
+            )
 
             logger.info(
                 "[analyze] Sending analysis request (model=%s, reasoning=%s, attempt=%s)...",
@@ -523,6 +1161,7 @@ async def analyze_food_image(
                 image_data=request_image_data,
                 max_output_tokens=_responses_max_output_tokens(max_tokens),
                 reasoning_effort=ANALYSIS_REASONING_EFFORT,
+                response_schema=NUTRITION_RESULT_JSON_SCHEMA,
             )
 
             elapsed_ms = int((time.monotonic() - t0) * 1000)
@@ -557,7 +1196,7 @@ async def analyze_food_image(
         # --- Step 3a: Packaged products → Responses API with web search ---
         if classification.category == "packaged_product":
             try:
-                ws_content, source_domains = await _analyze_with_web_search(
+                ws_content, source_domains, source_urls = await _analyze_with_web_search(
                     client, image_data, prompt_text
                 )
                 parsed_response = parse_response_content(ws_content)
@@ -569,6 +1208,11 @@ async def analyze_food_image(
                     result.productImageUrl,
                     source_domains,
                 )
+                if not result.productImageUrl:
+                    result.productImageUrl = await _find_product_image_from_sources(
+                        source_urls,
+                        source_domains,
+                    )
                 if source_domains:
                     sources_note = f"Sources: {', '.join(source_domains[:3])}"
                     if result.mealNotes and result.mealNotes.strip():
@@ -593,7 +1237,7 @@ async def analyze_food_image(
                         "For repeated identical products, use quantity like '2 x 200 ml' (or separate entries), "
                         "and ensure total macros/calories include every visible unit."
                     )
-                    retry_content, retry_sources = await _analyze_with_web_search(
+                    retry_content, retry_sources, retry_source_urls = await _analyze_with_web_search(
                         client, image_data, strict_multi_item_prompt
                     )
                     retry_parsed = parse_response_content(retry_content)
@@ -603,6 +1247,11 @@ async def analyze_food_image(
                         retry_result.productImageUrl,
                         retry_sources,
                     )
+                    if not retry_result.productImageUrl:
+                        retry_result.productImageUrl = await _find_product_image_from_sources(
+                            retry_source_urls,
+                            retry_sources,
+                        )
                     if retry_sources:
                         retry_sources_note = f"Sources: {', '.join(retry_sources[:3])}"
                         if retry_result.mealNotes and retry_result.mealNotes.strip():
@@ -644,6 +1293,9 @@ async def analyze_food_image(
             result = normalize_fallback(parsed_response, description)
             result = _set_verified_sources_on_ingredients(result, [])
 
+        if grounded_ingredients and not result.ingredients:
+            result.ingredients = grounded_ingredients
+
         if not result.analysis or not result.analysis.strip():
             result.analysis = "Food analysis completed."
         if not result.logName or not result.logName.strip():
@@ -652,6 +1304,13 @@ async def analyze_food_image(
             )
 
         result.ingredients = normalize_ingredients(result.ingredients, description)
+        result = _remove_ungrounded_nutrition_ingredients(result, grounded_ingredients)
+        result = _apply_evidence_defaults(result, classification)
+        result = _remove_inferred_image_ingredients(result, classification)
+        result = await _audit_visual_ingredient_support(client, image_data, result, classification)
+        result = _remove_unmentioned_high_risk_bowl_toppings(result, classification, description)
+        if not result.ingredients:
+            raise AppError(422, "No visually supported food ingredients were found")
         result = _reconcile_nutrition_totals(
             result,
             prefer_reported_calories=has_source_backed_calories and classification.category == "packaged_product",
@@ -717,6 +1376,7 @@ async def edit_log(
     ingredients: list[IngredientItem],
     correction: str,
     image_base64: Optional[str] = None,
+    source_url: Optional[str] = None,
 ) -> NutritionResult:
     """Apply a natural-language correction to existing ingredients using GPT-4.1.
 
@@ -743,6 +1403,7 @@ async def edit_log(
             ingredients_json,
             correction,
             has_image=bool(image_data),
+            source_url=source_url,
         )
 
         correction_lower = correction.lower()
@@ -750,9 +1411,9 @@ async def edit_log(
             "beer", "cola", "soda", "energy drink", "juice", "bottle", "can",
             "packaged", "brand", "product", "snack", "fruto", "няня", "frutonyanya",
         )
-        should_use_web_search = bool(image_data) and any(
+        should_use_web_search = bool(source_url) or (bool(image_data) and any(
             keyword in correction_lower for keyword in packaged_keywords
-        )
+        ))
 
         content: Optional[str] = None
         source_domains: list[str] = []
@@ -764,7 +1425,7 @@ async def edit_log(
                     client,
                     model=PACKAGED_PRODUCT_MODEL,
                     prompt_text=prompt_text,
-                    image_data=image_data,
+                    image_data=image_data or None,
                     max_output_tokens=3000,
                     reasoning_effort=PACKAGED_PRODUCT_REASONING_EFFORT,
                     tools=[{"type": "web_search"}],
@@ -772,7 +1433,8 @@ async def edit_log(
                     json_mode=False,
                 )
                 if _has_web_search_calls(ws_response):
-                    source_domains = _extract_source_domains(ws_response)
+                    source_urls = _extract_source_urls(ws_response)
+                    source_domains = _source_domains_from_urls(source_urls)
                     content = _extract_json_from_text(_extract_response_text(ws_response))
                     used_web_search_result = True
                     logger.info(
@@ -792,6 +1454,7 @@ async def edit_log(
                 image_data=image_data or None,
                 max_output_tokens=_responses_max_output_tokens(1500),
                 reasoning_effort=EDIT_REASONING_EFFORT,
+                response_schema=NUTRITION_RESULT_JSON_SCHEMA,
             )
             content = response.output_text
 
@@ -832,6 +1495,124 @@ async def edit_log(
         raise AppError(500, "Failed to process edit request")
 
 
+def _format_totals_for_chat(totals: Optional[NutritionTotals]) -> str:
+    if totals is None:
+        return "No selected-day totals were provided."
+    return (
+        f"Selected day totals: {round(totals.calories)} kcal, "
+        f"{round(totals.protein)}g protein, {round(totals.carbs)}g carbs, "
+        f"{round(totals.fats)}g fat."
+    )
+
+
+def _format_meals_for_chat(meals: list[FoodLogContextEntry]) -> str:
+    if not meals:
+        return "No recent meal logs were provided."
+
+    lines = []
+    for meal in meals[:20]:
+        ingredients = ", ".join(meal.ingredients[:10]) if meal.ingredients else "ingredients unknown"
+        lines.append(
+            "- "
+            f"{meal.description}: {round(meal.nutrition.calories)} kcal, "
+            f"{round(meal.nutrition.protein)}g protein, "
+            f"{round(meal.nutrition.carbs)}g carbs, "
+            f"{round(meal.nutrition.fats)}g fat. "
+            f"Ingredients: {ingredients}."
+        )
+    return "\n".join(lines)
+
+
+def _format_goals_for_chat(goals: Optional[NutritionGoals]) -> str:
+    if goals is None:
+        goals = NutritionGoals()
+
+    return (
+        "User goals and preferences. '-' means not set yet:\n"
+        f"- Main goal: {goals.goal}\n"
+        f"- Target calories: {goals.targetCalories}\n"
+        f"- Target protein: {goals.targetProtein}\n"
+        f"- Dietary preference: {goals.dietaryPreference}\n"
+        f"- Allergies/avoidances: {goals.allergies}\n"
+        f"- Activity/training: {goals.activity}\n"
+        f"- Notes: {goals.notes}"
+    )
+
+
+async def nutritionist_chat(
+    messages: list[ChatMessage],
+    today_totals: Optional[NutritionTotals] = None,
+    recent_meals: Optional[list[FoodLogContextEntry]] = None,
+    goals: Optional[NutritionGoals] = None,
+) -> NutritionistChatResult:
+    """Reply as a nutrition coach using chat history and recent meal context."""
+
+    client = get_openai_client()
+    recent_meals = recent_meals or []
+    meal_context = (
+        f"{_format_goals_for_chat(goals)}\n\n"
+        f"{_format_totals_for_chat(today_totals)}\n\n"
+        f"Recent meal logs:\n{_format_meals_for_chat(recent_meals)}"
+    )
+    instructions = (
+        "You are Cali's AI nutritionist coach. Help the user understand their meals, "
+        "build context about goals, preferences, schedule, allergies, training, appetite, "
+        "and constraints, and make practical comments that can later personalize food log feedback.\n\n"
+        "Rules:\n"
+        "1. Be concise, warm, and specific.\n"
+        "2. Treat '-' goal values as missing, not as literal goals.\n"
+        "3. Ask one focused follow-up question when important context is missing.\n"
+        "4. Use the provided meal logs only as context; do not invent meals or medical facts.\n"
+        "5. Do not diagnose, prescribe treatment, or give dangerous restriction advice.\n"
+        "6. If the user mentions a medical condition, pregnancy, eating disorder, or medication, "
+        "recommend working with a qualified clinician.\n"
+        "7. Prefer behavioral and meal-planning guidance over exact macro prescriptions unless "
+        "the user has shared a clear goal."
+    )
+
+    input_messages: list[dict[str, str]] = [
+        {"role": "user", "content": f"Context from the app:\n{meal_context}"}
+    ]
+    input_messages.extend(
+        {"role": message.role, "content": message.content}
+        for message in messages[-30:]
+    )
+
+    started = time.monotonic()
+    try:
+        logger.info(
+            "[nutritionist_chat] Sending request (model=%s, messages=%d, meals=%d)",
+            NUTRITIONIST_CHAT_MODEL,
+            len(messages),
+            len(recent_meals),
+        )
+        params: dict[str, Any] = {
+            "model": NUTRITIONIST_CHAT_MODEL,
+            "instructions": instructions,
+            "input": input_messages,
+            "max_output_tokens": 700,
+        }
+        if not NUTRITIONIST_CHAT_MODEL.startswith("gpt-4.1"):
+            params["reasoning"] = {"effort": NUTRITIONIST_CHAT_REASONING_EFFORT}
+            params["text"] = {"verbosity": "low"}
+
+        response = await client.responses.create(**params)
+        elapsed_ms = round((time.monotonic() - started) * 1000)
+        message = (response.output_text or "").strip()
+        logger.info("[nutritionist_chat] Response received in %dms", elapsed_ms)
+        if not message:
+            raise AppError(500, "Nutritionist chat returned an empty response")
+        return NutritionistChatResult(message=message)
+    except AppError:
+        raise
+    except (APITimeoutError, APIError) as exc:
+        logger.error("[nutritionist_chat] OpenAI error: %s", exc)
+        raise AppError(500, "Failed to generate nutritionist reply")
+    except Exception as exc:
+        logger.error("[nutritionist_chat] Unexpected error: %s", exc)
+        raise AppError(500, "Failed to generate nutritionist reply")
+
+
 def normalize_ingredients(
     raw: Any,
     description: Optional[str] = None,
@@ -853,6 +1634,7 @@ def normalize_ingredients(
             proteins = item.get("proteins")
             calories = item.get("calories")
             sources = item.get("sources")
+            evidence = item.get("evidence")
             if not isinstance(name, str) or not name.strip():
                 continue
             if not isinstance(quantity, str) or not quantity.strip():
@@ -893,6 +1675,11 @@ def normalize_ingredients(
                     fats=float(fats),
                     proteins=float(proteins),
                     calories=parsed_calories,
+                    evidence=(
+                        evidence
+                        if evidence in {"visible", "user_text", "inferred"}
+                        else None
+                    ),
                     sources=parsed_sources,
                     unit=(
                         item.get("unit").strip()
@@ -925,11 +1712,13 @@ def normalize_ingredients(
         IngredientItem(
             id="ingredient-fallback",
             name=fallback_name,
-            quantity="1 serving",
+            quantity="1",
+            unit="serving",
             carbs=0,
             fats=0,
             proteins=0,
             calories=0,
+            evidence="user_text" if isinstance(description, str) and description.strip() else "inferred",
         )
     ]
 

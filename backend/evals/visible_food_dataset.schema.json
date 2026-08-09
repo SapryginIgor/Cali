@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Source-backed visible food eval dataset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "version",
+    "description",
+    "source_policy",
+    "examples",
+    "collection_failures"
+  ],
+  "properties": {
+    "name": { "const": "source_backed_visible_food_eval" },
+    "version": { "type": "integer", "minimum": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "source_policy": { "type": "string", "minLength": 1 },
+    "examples": {
+      "type": "array",
+      "minItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "source",
+          "source_url",
+          "image_url",
+          "license",
+          "attribution",
+          "source_title",
+          "query",
+          "category",
+          "expected_visible_ingredients",
+          "ambiguous_visible_items",
+          "forbidden_ingredients",
+          "notes"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "source": { "const": "wikimedia_commons" },
+          "source_url": { "type": "string", "pattern": "^https://commons\\.wikimedia\\.org/wiki/File:" },
+          "image_url": { "type": "string", "pattern": "^https://upload\\.wikimedia\\.org/" },
+          "license": { "type": "string", "minLength": 1 },
+          "attribution": { "type": "string", "minLength": 1 },
+          "source_title": { "type": "string", "pattern": "^File:" },
+          "query": { "type": "string", "minLength": 1 },
+          "category": {
+            "enum": [
+              "simple_food",
+              "complex_meal",
+              "beverage",
+              "packaged_product",
+              "nutrition_label"
+            ]
+          },
+          "expected_visible_ingredients": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "required", "source_backing"],
+              "properties": {
+                "name": { "type": "string", "minLength": 1 },
+                "required": { "type": "boolean" },
+                "source_backing": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
+          "ambiguous_visible_items": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "forbidden_ingredients": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "notes": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "collection_failures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "query", "error"],
+        "properties": {
+          "id": { "type": "string" },
+          "query": { "type": "string" },
+          "error": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,11 +1,14 @@
-import { generateObject, editLogWithAI } from "@/lib/ai";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { generateObject, editLogWithAI, chatWithNutritionist } from "@/lib/ai";
 import { useRouter } from "expo-router";
-import { CameraView, useCameraPermissions } from "expo-camera";
+import { Camera as ExpoCamera, CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import {
   ArrowUp,
-  Camera,
+  Camera as CameraIcon,
   ImagePlus,
+  Link,
+  MessageCircle,
   Pencil,
   Plus,
   RefreshCw,
@@ -13,6 +16,7 @@ import {
   Sparkles,
   Trash2,
   User,
+  Utensils,
   X,
 } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -42,7 +46,7 @@ import { z } from "zod";
 import TrialBanner from "@/components/TrialBanner";
 import Colors from "@/constants/colors";
 import { useSubscription } from "@/contexts/SubscriptionContext";
-import { FoodEntry, IngredientItem } from "@/constants/types";
+import { FoodEntry, IngredientItem, NutritionGoals } from "@/constants/types";
 import { useApp } from "@/contexts/AppContext";
 import { Image } from "expo-image";
 import {
@@ -71,6 +75,7 @@ const nutritionSchema = z.object({
         fats: z.number(),
         proteins: z.number(),
         calories: z.number(),
+        evidence: z.enum(["visible", "user_text", "inferred"]).optional(),
         sources: z.array(z.string()).optional(),
         unit: z.string().optional(),
         preparation: z.string().optional(),
@@ -79,12 +84,91 @@ const nutritionSchema = z.object({
   )
     .describe("Structured list of meal ingredients"),
   mealNotes: z.string().optional().describe("Optional short notes about the meal"),
+  confidence: z.number().optional().describe("Analysis confidence score from 0 to 1"),
+  foodCategory: z.string().optional().describe("Classified food category"),
   productImageUrl: z.string().optional().describe("Optional verified packaged product image URL"),
 });
 
 const WEEKS_BEFORE = 104;
 const WEEKS_AFTER = 104;
 const INITIAL_WEEK_INDEX = WEEKS_BEFORE;
+const CHAT_STORAGE_KEY = "nutritionist_chat_messages";
+const GOALS_STORAGE_KEY = "nutritionist_goals";
+
+type AppMode = "diary" | "coach";
+type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: number;
+};
+
+const INITIAL_CHAT_MESSAGES: ChatMessage[] = [
+  {
+    id: "coach-welcome",
+    role: "assistant",
+    content:
+      "Hi, I’m your nutrition coach. Tell me what you’re aiming for and I’ll use your meal logs to make the feedback more personal.",
+    timestamp: 0,
+  },
+];
+
+const DEFAULT_NUTRITION_GOALS: NutritionGoals = {
+  goal: "-",
+  targetCalories: "-",
+  targetProtein: "-",
+  dietaryPreference: "-",
+  allergies: "-",
+  activity: "-",
+  notes: "-",
+};
+
+type NutritionGoalField = keyof NutritionGoals;
+
+const GOAL_FIELDS: { key: NutritionGoalField; label: string; placeholder: string }[] = [
+  { key: "goal", label: "Goal", placeholder: "Fat loss, muscle gain, energy..." },
+  { key: "targetCalories", label: "Calories", placeholder: "e.g. 2200 kcal" },
+  { key: "targetProtein", label: "Protein", placeholder: "e.g. 140g/day" },
+  { key: "dietaryPreference", label: "Diet", placeholder: "Vegetarian, low carb..." },
+  { key: "allergies", label: "Avoid", placeholder: "Allergies or foods to avoid" },
+  { key: "activity", label: "Activity", placeholder: "Lifting 3x/week, desk job..." },
+  { key: "notes", label: "Notes", placeholder: "Schedule, appetite, constraints..." },
+];
+
+const normalizeGoalValue = (value?: string) => {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : "-";
+};
+
+const normalizeGoals = (goals?: Partial<NutritionGoals> | null): NutritionGoals => ({
+  goal: normalizeGoalValue(goals?.goal),
+  targetCalories: normalizeGoalValue(goals?.targetCalories),
+  targetProtein: normalizeGoalValue(goals?.targetProtein),
+  dietaryPreference: normalizeGoalValue(goals?.dietaryPreference),
+  allergies: normalizeGoalValue(goals?.allergies),
+  activity: normalizeGoalValue(goals?.activity),
+  notes: normalizeGoalValue(goals?.notes),
+});
+
+const parseGoalNumber = (value: string) => {
+  const normalized = normalizeGoalValue(value);
+  if (normalized === "-") {
+    return null;
+  }
+  const match = normalized.replace(",", ".").match(/\d+(?:\.\d+)?/);
+  if (!match) {
+    return null;
+  }
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const getProgressPercent = (current: number, target: number | null) => {
+  if (!target) {
+    return 0;
+  }
+  return Math.min(100, Math.max(0, (current / target) * 100));
+};
 
 if (Platform.OS === "android") {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -277,9 +361,17 @@ export default function TodayScreen() {
   const [editDescription, setEditDescription] = useState("");
   const [editIngredients, setEditIngredients] = useState<IngredientItem[]>([]);
   const [editAICorrection, setEditAICorrection] = useState("");
+  const [editSourceUrl, setEditSourceUrl] = useState("");
   const [editAILoading, setEditAILoading] = useState(false);
   const [editKeyboardHeight, setEditKeyboardHeight] = useState(0);
   const [selectedDate, setSelectedDate] = useState(todayDate);
+  const [appMode, setAppMode] = useState<AppMode>("diary");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT_MESSAGES);
+  const [chatInput, setChatInput] = useState("");
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [hasLoadedChat, setHasLoadedChat] = useState(false);
+  const [nutritionGoals, setNutritionGoals] = useState<NutritionGoals>(DEFAULT_NUTRITION_GOALS);
+  const [hasLoadedGoals, setHasLoadedGoals] = useState(false);
   const hasInputContent = inputText.trim().length > 0;
   const isComposerCompact = isInputFocused || hasInputContent || selectedImage !== null;
 
@@ -289,8 +381,22 @@ export default function TodayScreen() {
   );
   const displayedEntries = getEntriesByDate(selectedDate);
   const totals = getTotalsByDate(selectedDate);
+  const calorieGoal = parseGoalNumber(nutritionGoals.targetCalories);
+  const proteinGoal = parseGoalNumber(nutritionGoals.targetProtein);
+  const calorieProgress = getProgressPercent(totals.calories, calorieGoal);
+  const proteinProgress = getProgressPercent(totals.protein, proteinGoal);
+  const recentEntriesForChat = useMemo(
+    () =>
+      [...entries]
+        .filter((entry) => entry.analysisStatus !== "pending")
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 20),
+    [entries]
+  );
   const pendingEntryIdsRef = useRef<Set<string>>(new Set());
   const cameraRef = useRef<CameraView>(null);
+  const inputBarInputRef = useRef<TextInput>(null);
+  const chatScrollRef = useRef<ScrollView>(null);
   const [cameraFacing, setCameraFacing] = useState<"front" | "back">("back");
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 const getAnalysisMessages = useCallback((description: string, imageUri?: string) => {
@@ -302,9 +408,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
           content: [
             {
               type: "text",
-              text:
-                "Analyze this meal image and return ONLY JSON with fields: carbs (number), protein (number), fats (number), calories (number), analysis (string), logName (string), ingredients (array of {id, name, quantity, carbs, fats, proteins, calories, sources?, unit?, preparation?, note?}), and optional mealNotes (string). Include one ingredient item per meal component. Name, quantity, carbs, fats, proteins, and calories are required for every ingredient. logName must be a short human-friendly title for the log. IMPORTANT: quantity must be numeric only (e.g. \"240\", \"1\", \"2\"), and unit must be a separate field using full words, never abbreviated (e.g. \"gram\", \"ml\", \"tablespoon\", \"cup\", \"piece\"). Never put units inside quantity." +
-                (description ? ` Additional context: ${description}` : ""),
+              text: description ? `Description: ${description}` : "Analyze the attached meal image.",
             },
             {
               type: "image",
@@ -317,9 +421,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
       messages = [
         {
           role: "user",
-          content:
-            "Analyze this meal description and return ONLY JSON with fields: carbs, protein, fats, calories, analysis, logName, ingredients (array with id, name, quantity, carbs, fats, proteins, calories, unit, optional sources), and optional mealNotes. logName must be a short human-friendly title for the log. IMPORTANT: quantity must be numeric only (e.g. \"240\", \"1\"), and unit must be a separate field using full words, never abbreviated (e.g. \"gram\", \"ml\", \"tablespoon\", \"cup\", \"piece\"). Never put units inside quantity. " +
-            `Description: ${description}`,
+          content: `Description: ${description}`,
         },
       ];
     }
@@ -357,6 +459,8 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         mealNotes: result.mealNotes,
         ingredients: normalizedIngredients,
         productImageUrl: result.productImageUrl,
+        confidence: result.confidence,
+        foodCategory: result.foodCategory,
         analysisStatus: "completed",
         analysisError: undefined,
         nutrition: {
@@ -414,14 +518,22 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
       presentPaywall();
       return;
     }
-    if (!cameraPermission?.granted) {
-      const { granted } = await requestCameraPermission();
-      if (!granted) {
+    inputBarInputRef.current?.blur();
+    Keyboard.dismiss();
+    try {
+      let permission = cameraPermission ?? (await ExpoCamera.getCameraPermissionsAsync());
+      if (!permission.granted) {
+        permission = await requestCameraPermission();
+      }
+      if (!permission.granted) {
         Alert.alert("Permission needed", "Camera access is required to take photos");
         return;
       }
+      setModalVisible(true);
+    } catch (error) {
+      console.error("Failed to open camera:", error);
+      Alert.alert("Camera unavailable", "We could not open the camera. Please try again.");
     }
-    setModalVisible(true);
   }, [isPremium, presentPaywall, cameraPermission, requestCameraPermission]);
 
   const handleInputTextChange = useCallback((nextText: string) => {
@@ -445,21 +557,43 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     setIsInputFocused(false);
   }, [inputText, isInputFocused, selectedImage]);
 
+  const toJpegDataUri = useCallback((base64?: string | null) => {
+    if (!base64) {
+      return null;
+    }
+    return base64.startsWith("data:image/")
+      ? base64
+      : `data:image/jpeg;base64,${base64}`;
+  }, []);
+
+  const handlePhotoSelected = useCallback((imageUri: string) => {
+    runSoftLayoutTransition();
+    const description = inputText.trim();
+
+    if (description.length === 0) {
+      submitEntry(imageUri, "");
+      setInputText("");
+      setSelectedImage(null);
+      setIsInputFocused(false);
+      setModalVisible(false);
+      return;
+    }
+
+    setSelectedImage(imageUri);
+    setModalVisible(false);
+  }, [inputText, submitEntry]);
+
   const handleCapture = useCallback(async () => {
     if (!cameraRef.current) return;
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.82, base64: true });
       if (photo) {
-        runSoftLayoutTransition();
-        submitEntry(photo.uri, inputText);
-        setInputText("");
-        setIsInputFocused(false);
-        setModalVisible(false);
+        handlePhotoSelected(toJpegDataUri(photo.base64) ?? photo.uri);
       }
     } catch (error) {
       console.error("Failed to capture photo:", error);
     }
-  }, [inputText, submitEntry]);
+  }, [handlePhotoSelected]);
 
   const handleFlipCamera = useCallback(() => {
     setCameraFacing((prev) => (prev === "back" ? "front" : "back"));
@@ -474,14 +608,14 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       allowsEditing: false,
-      quality: 1,
+      quality: 0.92,
+      base64: true,
+      preferredAssetRepresentationMode:
+        ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
     });
     if (!result.canceled) {
-      runSoftLayoutTransition();
-      submitEntry(result.assets[0].uri, inputText);
-      setInputText("");
-      setIsInputFocused(false);
-      setModalVisible(false);
+      const asset = result.assets[0];
+      handlePhotoSelected(toJpegDataUri(asset.base64) ?? asset.uri);
     }
   };
 
@@ -490,6 +624,8 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     runSoftLayoutTransition();
     setIsSubmitting(true);
     submitEntry(selectedImage, inputText);
+    inputBarInputRef.current?.blur();
+    Keyboard.dismiss();
     setInputText("");
     setSelectedImage(null);
     setIsInputFocused(false);
@@ -527,6 +663,78 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     return () => { showSub.remove(); hideSub.remove(); };
   }, [editModalVisible]);
 
+  useEffect(() => {
+    let isMounted = true;
+    AsyncStorage.getItem(CHAT_STORAGE_KEY)
+      .then((stored) => {
+        if (!isMounted || !stored) {
+          return;
+        }
+        const parsed = JSON.parse(stored) as ChatMessage[];
+        const validMessages = parsed.filter(
+          (message) =>
+            message &&
+            (message.role === "user" || message.role === "assistant") &&
+            typeof message.content === "string" &&
+            message.content.trim().length > 0
+        );
+        if (validMessages.length > 0) {
+          setChatMessages(validMessages);
+        }
+      })
+      .catch((error) => {
+        console.warn("Failed to load nutritionist chat:", error);
+      })
+      .finally(() => {
+        if (isMounted) {
+          setHasLoadedChat(true);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedChat) {
+      return;
+    }
+    AsyncStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(chatMessages)).catch((error) => {
+      console.warn("Failed to save nutritionist chat:", error);
+    });
+  }, [chatMessages, hasLoadedChat]);
+
+  useEffect(() => {
+    let isMounted = true;
+    AsyncStorage.getItem(GOALS_STORAGE_KEY)
+      .then((stored) => {
+        if (!isMounted || !stored) {
+          return;
+        }
+        setNutritionGoals(normalizeGoals(JSON.parse(stored) as Partial<NutritionGoals>));
+      })
+      .catch((error) => {
+        console.warn("Failed to load nutrition goals:", error);
+      })
+      .finally(() => {
+        if (isMounted) {
+          setHasLoadedGoals(true);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedGoals) {
+      return;
+    }
+    AsyncStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(normalizeGoals(nutritionGoals))).catch((error) => {
+      console.warn("Failed to save nutrition goals:", error);
+    });
+  }, [nutritionGoals, hasLoadedGoals]);
+
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString("en-US", {
@@ -552,6 +760,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     setEditDescription("");
     setEditIngredients([]);
     setEditAICorrection("");
+    setEditSourceUrl("");
     setEditAILoading(false);
   };
 
@@ -619,12 +828,14 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
       const result = await editLogWithAI(
         editIngredients,
         correction,
-        editingEntry?.imageUri
+        editingEntry?.imageUri,
+        editSourceUrl
       );
       runSoftLayoutTransition();
       setEditIngredients(result.ingredients);
       if (result.logName) setEditDescription(result.logName);
       setEditAICorrection("");
+      setEditSourceUrl("");
     } catch (error) {
       Alert.alert(
         "AI Edit Failed",
@@ -693,6 +904,76 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     );
   };
 
+  const handleGoalChange = (field: NutritionGoalField, value: string) => {
+    setNutritionGoals((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const handleGoalBlur = (field: NutritionGoalField) => {
+    setNutritionGoals((prev) => ({
+      ...prev,
+      [field]: normalizeGoalValue(prev[field]),
+    }));
+  };
+
+  const handleSendChatMessage = async () => {
+    const trimmed = chatInput.trim();
+    if (!trimmed || isChatLoading) {
+      return;
+    }
+
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: trimmed,
+      timestamp: Date.now(),
+    };
+    const nextMessages = [...chatMessages, userMessage];
+    setChatMessages(nextMessages);
+    setChatInput("");
+    setIsChatLoading(true);
+
+    try {
+      const reply = await chatWithNutritionist(
+        nextMessages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+        {
+          todayTotals: totals,
+          recentMeals: recentEntriesForChat,
+          goals: normalizeGoals(nutritionGoals),
+        }
+      );
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: reply,
+          timestamp: Date.now(),
+        },
+      ]);
+    } catch (error) {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-error-${Date.now()}`,
+          role: "assistant",
+          content:
+            error instanceof Error
+              ? `I couldn’t reply just now: ${error.message}`
+              : "I couldn’t reply just now. Please try again.",
+          timestamp: Date.now(),
+        },
+      ]);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -701,28 +982,63 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
       />
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <TrialBanner />
-        <View style={styles.calendarContainer}>
-          <View style={styles.calendarTopRow}>
-            <View style={styles.calendarTopRowSpacer} />
+        <View style={styles.appHeader}>
+          <View style={styles.modeSwitch}>
             <TouchableOpacity
-              onPress={() => router.push("/(main)/profile" as never)}
-              style={styles.headerProfileButton}
+              style={[styles.modeSwitchButton, appMode === "diary" && styles.modeSwitchButtonActive]}
+              onPress={() => setAppMode("diary")}
               accessibilityRole="button"
-              accessibilityLabel="Profile"
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Open meal diary"
+              activeOpacity={0.85}
             >
-              <User size={24} color={Colors.light.text} />
+              <Utensils
+                size={16}
+                color={appMode === "diary" ? "#FFFFFF" : Colors.light.secondaryText}
+              />
+              <Text style={[styles.modeSwitchText, appMode === "diary" && styles.modeSwitchTextActive]}>
+                Diary
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeSwitchButton, appMode === "coach" && styles.modeSwitchButtonActive]}
+              onPress={() => setAppMode("coach")}
+              accessibilityRole="button"
+              accessibilityLabel="Open nutrition coach chat"
+              activeOpacity={0.85}
+            >
+              <MessageCircle
+                size={16}
+                color={appMode === "coach" ? "#FFFFFF" : Colors.light.secondaryText}
+              />
+              <Text style={[styles.modeSwitchText, appMode === "coach" && styles.modeSwitchTextActive]}>
+                Coach
+              </Text>
             </TouchableOpacity>
           </View>
-          <CalendarCarousel
-            calendarWeeks={calendarWeeks}
-            selectedDate={selectedDate}
-            todayDate={todayDate}
-            onSelectDate={handleSelectCalendarDay}
-            screenWidth={screenWidth}
-          />
+          <TouchableOpacity
+            onPress={() => router.push("/(main)/profile" as never)}
+            style={styles.headerProfileButton}
+            accessibilityRole="button"
+            accessibilityLabel="Profile"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <User size={24} color={Colors.light.text} />
+          </TouchableOpacity>
         </View>
 
+        {appMode === "diary" && (
+          <View style={styles.calendarContainer}>
+            <CalendarCarousel
+              calendarWeeks={calendarWeeks}
+              selectedDate={selectedDate}
+              todayDate={todayDate}
+              onSelectDate={handleSelectCalendarDay}
+              screenWidth={screenWidth}
+            />
+          </View>
+        )}
+
+        {appMode === "diary" ? (
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.macrosCard}>
             <LinearGradient
@@ -731,9 +1047,6 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             >
               <View style={styles.macrosHeader}>
                 <Text style={styles.macrosTitle}>Daily Intake</Text>
-                <Text style={styles.macrosSubtitle}>
-                  {displayedEntries.length} {displayedEntries.length === 1 ? "meal" : "meals"} logged
-                </Text>
               </View>
 
               <View style={styles.macrosGrid}>
@@ -749,7 +1062,24 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                     <Text style={styles.macroCardLargeValue}>
                       {Math.round(totals.calories)}
                     </Text>
-                    <Text style={styles.macroCardLargeGoal}>cal</Text>
+                    <Text style={styles.macroCardLargeGoal}>
+                      {calorieGoal ? `of ${Math.round(calorieGoal)} cal` : "cal"}
+                    </Text>
+                    {calorieGoal && (
+                      <View style={styles.macroCardLargeProgress}>
+                        <View style={styles.macroCardLargeProgressBar}>
+                          <View
+                            style={[
+                              styles.macroCardLargeProgressFill,
+                              {
+                                width: `${calorieProgress}%`,
+                                backgroundColor: "rgba(255, 255, 255, 0.82)",
+                              },
+                            ]}
+                          />
+                        </View>
+                      </View>
+                    )}
                   </LinearGradient>
                 </View>
 
@@ -763,6 +1093,29 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                     <Text style={styles.macroCardValue}>
                       {Math.round(totals.protein)}g
                     </Text>
+                    {proteinGoal && (
+                      <>
+                        <Text style={styles.macroCardGoal}>of {Math.round(proteinGoal)}g</Text>
+                        <View style={styles.macroCardProgress}>
+                          <View
+                            style={[
+                              styles.macroCardProgressBar,
+                              { backgroundColor: `${Colors.light.macroProtein}18` },
+                            ]}
+                          >
+                            <View
+                              style={[
+                                styles.macroCardProgressFill,
+                                {
+                                  width: `${proteinProgress}%`,
+                                  backgroundColor: Colors.light.macroProtein,
+                                },
+                              ]}
+                            />
+                          </View>
+                        </View>
+                      </>
+                    )}
                   </View>
 
                   <View style={styles.macroCard}>
@@ -808,10 +1161,15 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             </View>
           ) : (
             <View style={styles.timeline}>
-              {displayedEntries.map((entry) => (
-                <View key={entry.id} style={styles.entryCard}>
+              {displayedEntries.map((entry) => {
+                const needsReview =
+                  entry.analysisStatus === "completed" &&
+                  (typeof entry.confidence === "number" && entry.confidence < 0.7);
+
+                return (
+                <View key={entry.id} style={[styles.entryCard, needsReview && styles.entryCardNeedsReview]}>
                   <LinearGradient
-                    colors={["#FFFFFF", "#FAFBFF"]}
+                    colors={needsReview ? ["#FFFFFF", "#FFFBEB"] : ["#FFFFFF", "#FAFBFF"]}
                     style={styles.entryCardGradient}
                   >
                     <View style={styles.entryContent}>
@@ -828,6 +1186,11 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                           {entry.analysisStatus === "failed" && (
                             <View style={styles.entryFailedBadge}>
                               <Text style={styles.entryFailedBadgeText}>Failed</Text>
+                            </View>
+                          )}
+                          {needsReview && (
+                            <View style={styles.entryReviewBadge}>
+                              <Text style={styles.entryReviewBadgeText}>Check ingredients</Text>
                             </View>
                           )}
                         </View>
@@ -932,10 +1295,96 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                     </View>
                   </LinearGradient>
                 </View>
-              ))}
+                );
+              })}
             </View>
           )}
         </ScrollView>
+        ) : (
+          <View style={styles.coachContainer}>
+            <ScrollView
+              ref={chatScrollRef}
+              style={styles.coachMessages}
+              contentContainerStyle={styles.coachMessagesContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}
+            >
+              <View style={styles.coachContextPanel}>
+                <View style={styles.coachContextHeader}>
+                  <Sparkles size={16} color={Colors.light.tint} />
+                  <Text style={styles.coachContextTitle}>Nutrition Coach</Text>
+                </View>
+                <Text style={styles.coachContextText}>
+                  Goals are optional. Leave any field as - and keep using the app.
+                </Text>
+                <View style={styles.coachDailySyncRow}>
+                  <Text style={styles.coachDailySyncText}>
+                    Today: {Math.round(totals.calories)}{calorieGoal ? ` / ${Math.round(calorieGoal)}` : ""} cal
+                  </Text>
+                  <Text style={styles.coachDailySyncText}>
+                    Protein: {Math.round(totals.protein)}{proteinGoal ? ` / ${Math.round(proteinGoal)}` : ""}g
+                  </Text>
+                </View>
+                <View style={styles.goalFields}>
+                  {GOAL_FIELDS.map((field) => (
+                    <View key={field.key} style={styles.goalFieldRow}>
+                      <Text style={styles.goalFieldLabel}>{field.label}</Text>
+                      <TextInput
+                        style={styles.goalFieldInput}
+                        value={nutritionGoals[field.key]}
+                        onChangeText={(value) => handleGoalChange(field.key, value)}
+                        onBlur={() => handleGoalBlur(field.key)}
+                        placeholder={field.placeholder}
+                        placeholderTextColor={Colors.light.tertiaryText}
+                        maxLength={field.key === "notes" ? 500 : 200}
+                        multiline={field.key === "notes"}
+                      />
+                    </View>
+                  ))}
+                </View>
+              </View>
+
+              {chatMessages.map((message) => {
+                const isUserMessage = message.role === "user";
+                return (
+                  <View
+                    key={message.id}
+                    style={[
+                      styles.chatMessageRow,
+                      isUserMessage && styles.chatMessageRowUser,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.chatBubble,
+                        isUserMessage ? styles.chatBubbleUser : styles.chatBubbleAssistant,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.chatBubbleText,
+                          isUserMessage && styles.chatBubbleTextUser,
+                        ]}
+                      >
+                        {message.content}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+
+              {isChatLoading && (
+                <View style={styles.chatMessageRow}>
+                  <View style={[styles.chatBubble, styles.chatBubbleAssistant, styles.chatThinkingBubble]}>
+                    <ActivityIndicator size="small" color={Colors.light.tint} />
+                    <Text style={styles.chatThinkingText}>Thinking</Text>
+                  </View>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        )}
       </SafeAreaView>
 
       <Modal
@@ -1074,16 +1523,33 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
           </ScrollView>
 
           <View style={[styles.aiEditBar, editKeyboardHeight > 0 && { paddingBottom: editKeyboardHeight - 20 }]}>
-            <TextInput
-              style={styles.aiEditInput}
-              placeholder="What to change?"
-              placeholderTextColor={Colors.light.secondaryText}
-              value={editAICorrection}
-              onChangeText={setEditAICorrection}
-              editable={!editAILoading}
-              returnKeyType="send"
-              onSubmitEditing={handleAIEditSubmit}
-            />
+            <View style={styles.aiEditInputs}>
+              <View style={styles.aiEditSourceRow}>
+                <Link size={14} color={Colors.light.secondaryText} />
+                <TextInput
+                  style={styles.aiEditSourceInput}
+                  placeholder="Recipe/product link"
+                  placeholderTextColor={Colors.light.secondaryText}
+                  value={editSourceUrl}
+                  onChangeText={setEditSourceUrl}
+                  editable={!editAILoading}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  textContentType="URL"
+                />
+              </View>
+              <TextInput
+                style={styles.aiEditInput}
+                placeholder="What to change?"
+                placeholderTextColor={Colors.light.secondaryText}
+                value={editAICorrection}
+                onChangeText={setEditAICorrection}
+                editable={!editAILoading}
+                returnKeyType="send"
+                onSubmitEditing={handleAIEditSubmit}
+              />
+            </View>
             <TouchableOpacity
               style={[
                 styles.aiEditSendButton,
@@ -1188,6 +1654,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         </View>
       </Modal>
 
+      {appMode === "diary" ? (
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.inputBarWrapper}
@@ -1208,7 +1675,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
           )}
           {isComposerCompact && (
             <TouchableOpacity
-              style={styles.inputBarCameraSmall}
+              style={styles.inputBarCameraButton}
               onPress={handleOpenLogMeal}
               activeOpacity={0.85}
               accessibilityRole="button"
@@ -1218,13 +1685,14 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                 colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={styles.inputBarCameraSmallGradient}
+                style={styles.inputBarCameraButtonGradient}
               >
-                <Camera color="#FFFFFF" size={16} />
+                <CameraIcon color="#FFFFFF" size={16} />
               </LinearGradient>
             </TouchableOpacity>
           )}
           <TextInput
+            ref={inputBarInputRef}
             style={styles.inputBarInput}
             placeholder="What did you eat?"
             placeholderTextColor={Colors.light.secondaryText}
@@ -1250,24 +1718,59 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         </View>
         {!isComposerCompact && (
           <TouchableOpacity
-            style={styles.inputBarCameraBtn}
+            style={styles.inputBarCameraButtonLane}
             onPress={handleOpenLogMeal}
             activeOpacity={0.85}
             accessibilityRole="button"
             accessibilityLabel="Add photo"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <LinearGradient
-              colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.inputBarCameraBtnGradient}
-            >
-              <Camera color="#FFFFFF" size={40} />
-            </LinearGradient>
+            <View style={styles.inputBarCameraButtonProminent}>
+              <LinearGradient
+                colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.inputBarCameraButtonGradient}
+              >
+                <CameraIcon color="#FFFFFF" size={40} />
+              </LinearGradient>
+            </View>
           </TouchableOpacity>
         )}
         <View style={{ height: isComposerCompact ? 8 : safeInsets.bottom }} />
       </KeyboardAvoidingView>
+      ) : (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.coachInputWrapper}
+        >
+          <View style={styles.coachInputBar}>
+            <TextInput
+              style={styles.coachInput}
+              placeholder="Ask about goals, meals, cravings..."
+              placeholderTextColor={Colors.light.secondaryText}
+              value={chatInput}
+              onChangeText={setChatInput}
+              editable={!isChatLoading}
+              multiline
+              maxLength={1000}
+            />
+            <TouchableOpacity
+              style={[
+                styles.coachSendButton,
+                (!chatInput.trim() || isChatLoading) && styles.sendButtonDisabled,
+              ]}
+              onPress={handleSendChatMessage}
+              disabled={!chatInput.trim() || isChatLoading}
+              accessibilityRole="button"
+              accessibilityLabel="Send message"
+            >
+              <ArrowUp color="#FFFFFF" size={22} strokeWidth={3} />
+            </TouchableOpacity>
+          </View>
+          <View style={{ height: safeInsets.bottom }} />
+        </KeyboardAvoidingView>
+      )}
     </View>
   );
 }
@@ -1278,6 +1781,44 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+  },
+  appHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 12,
+  },
+  modeSwitch: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.78)",
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    borderRadius: 18,
+    padding: 4,
+    gap: 4,
+  },
+  modeSwitchButton: {
+    minWidth: 88,
+    height: 36,
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  modeSwitchButtonActive: {
+    backgroundColor: Colors.light.text,
+  },
+  modeSwitchText: {
+    fontSize: 14,
+    fontWeight: "700" as const,
+    color: Colors.light.secondaryText,
+  },
+  modeSwitchTextActive: {
+    color: "#FFFFFF",
   },
   calendarTopRow: {
     flexDirection: "row",
@@ -1290,10 +1831,163 @@ const styles = StyleSheet.create({
   },
   headerProfileButton: {
     padding: 6,
-    marginRight: 18,
   },
   content: {
     flex: 1,
+  },
+  coachContainer: {
+    flex: 1,
+  },
+  coachMessages: {
+    flex: 1,
+  },
+  coachMessagesContent: {
+    paddingHorizontal: 18,
+    paddingTop: 4,
+    paddingBottom: 24,
+    gap: 12,
+  },
+  coachContextPanel: {
+    backgroundColor: "rgba(255, 255, 255, 0.82)",
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 6,
+  },
+  coachContextHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  coachContextTitle: {
+    fontSize: 16,
+    fontWeight: "800" as const,
+    color: Colors.light.text,
+  },
+  coachContextText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: Colors.light.secondaryText,
+  },
+  coachDailySyncRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
+  coachDailySyncText: {
+    backgroundColor: Colors.light.lightBlue,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 12,
+    fontWeight: "700" as const,
+    color: Colors.light.text,
+  },
+  goalFields: {
+    marginTop: 12,
+    gap: 8,
+  },
+  goalFieldRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  goalFieldLabel: {
+    width: 72,
+    fontSize: 12,
+    fontWeight: "800" as const,
+    color: Colors.light.secondaryText,
+    textTransform: "uppercase" as const,
+  },
+  goalFieldInput: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    fontSize: 14,
+    color: Colors.light.text,
+  },
+  chatMessageRow: {
+    flexDirection: "row",
+    justifyContent: "flex-start",
+  },
+  chatMessageRowUser: {
+    justifyContent: "flex-end",
+  },
+  chatBubble: {
+    maxWidth: "84%",
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+  },
+  chatBubbleAssistant: {
+    backgroundColor: "#FFFFFF",
+    borderColor: Colors.light.border,
+  },
+  chatBubbleUser: {
+    backgroundColor: Colors.light.text,
+    borderColor: Colors.light.text,
+  },
+  chatBubbleText: {
+    fontSize: 15,
+    lineHeight: 21,
+    color: Colors.light.text,
+  },
+  chatBubbleTextUser: {
+    color: "#FFFFFF",
+  },
+  chatThinkingBubble: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  chatThinkingText: {
+    fontSize: 14,
+    color: Colors.light.secondaryText,
+    fontWeight: "600" as const,
+  },
+  coachInputWrapper: {
+    backgroundColor: "#FFFFFF",
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.border,
+  },
+  coachInputBar: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 10,
+    gap: 10,
+  },
+  coachInput: {
+    flex: 1,
+    backgroundColor: Colors.light.cardBackground,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    fontSize: 16,
+    color: Colors.light.text,
+    maxHeight: 120,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+  },
+  coachSendButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.light.tint,
+    alignItems: "center",
+    justifyContent: "center",
   },
   calendarContainer: {
     marginBottom: 18,
@@ -1575,6 +2269,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.light.border,
   },
+  entryCardNeedsReview: {
+    borderColor: "#FDE68A",
+  },
   entryCardGradient: {
     padding: 20,
   },
@@ -1628,6 +2325,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700" as const,
     color: "#B91C1C",
+  },
+  entryReviewBadge: {
+    backgroundColor: "#FEF3C7",
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  entryReviewBadgeText: {
+    fontSize: 12,
+    fontWeight: "700" as const,
+    color: "#92400E",
   },
   entryCaloriesBadge: {
     backgroundColor: Colors.light.gradientStart,
@@ -1749,26 +2457,23 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: Colors.light.border,
   },
-  inputBarCameraSmall: {
+  inputBarCameraButton: {
     width: 42,
     height: 42,
     borderRadius: 21,
     overflow: "hidden",
     marginBottom: 0,
   },
-  inputBarCameraSmallGradient: {
-    width: "100%",
-    height: "100%",
+  inputBarCameraButtonLane: {
     alignItems: "center",
-    justifyContent: "center",
+    paddingTop: 6,
+    paddingBottom: 10,
+    minHeight: 106,
   },
-  inputBarCameraBtn: {
-    alignSelf: "center",
-    marginTop: 6,
-    marginBottom: 0,
+  inputBarCameraButtonProminent: {
     width: 90,
     height: 90,
-    borderRadius: 36,
+    borderRadius: 45,
     overflow: "hidden",
     shadowColor: Colors.light.gradientStart,
     shadowOffset: { width: 0, height: 8 },
@@ -1776,7 +2481,7 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     elevation: 16,
   },
-  inputBarCameraBtnGradient: {
+  inputBarCameraButtonGradient: {
     width: "100%",
     height: "100%",
     alignItems: "center",
@@ -2058,7 +2763,7 @@ const styles = StyleSheet.create({
   },
   aiEditBar: {
     flexDirection: "row" as const,
-    alignItems: "center" as const,
+    alignItems: "flex-end" as const,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderTopWidth: 1,
@@ -2066,8 +2771,28 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     gap: 10,
   },
-  aiEditInput: {
+  aiEditInputs: {
     flex: 1,
+    gap: 8,
+  },
+  aiEditSourceRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    backgroundColor: Colors.light.cardBackground,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    minHeight: 36,
+    gap: 8,
+  },
+  aiEditSourceInput: {
+    flex: 1,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: Colors.light.text,
+  },
+  aiEditInput: {
     backgroundColor: Colors.light.cardBackground,
     borderRadius: 20,
     paddingHorizontal: 16,

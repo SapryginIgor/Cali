@@ -3,7 +3,7 @@
  * Uses backend API for OpenAI GPT-4 Vision integration, with fallback to mock.
  */
 
-import { IngredientItem } from "@/constants/types";
+import { FoodEntry, IngredientItem, NutritionGoals } from "@/constants/types";
 import { supabase } from "@/lib/supabase";
 
 export interface NutritionResult {
@@ -20,6 +20,17 @@ export interface NutritionResult {
   productImageUrl?: string;
 }
 
+export interface NutritionistChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface NutritionistChatContext {
+  todayTotals?: FoodEntry["nutrition"];
+  recentMeals?: FoodEntry[];
+  goals?: NutritionGoals;
+}
+
 // Backend API configuration
 // Set EXPO_PUBLIC_BACKEND_URL environment variable to enable backend API
 // For development: http://localhost:3000
@@ -33,6 +44,12 @@ const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || "";
  */
 async function imageUriToBase64(imageUri: string): Promise<string> {
   console.log("[Cali API] Converting image to base64...", imageUri?.slice(0, 50));
+  if (imageUri.startsWith("data:image/")) {
+    const base64 = imageUri.includes(",") ? imageUri.split(",")[1] : imageUri;
+    console.log("[Cali API] Image is already a data URI, base64 length:", base64?.length);
+    return base64;
+  }
+
   try {
     const response = await fetch(imageUri);
     const blob = await response.blob();
@@ -62,6 +79,16 @@ const BACKEND_REQUEST_TIMEOUT_MS = 180_000;
 
 const NETWORK_RETRY_DELAY_MS = 1200;
 const NETWORK_RETRY_ATTEMPTS = 2;
+
+class BackendAPIError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "BackendAPIError";
+    this.status = status;
+  }
+}
 
 function isTransientNetworkError(error: unknown): boolean {
   return (
@@ -176,7 +203,7 @@ async function callBackendAPI(
         }
       }
       console.error("[Cali API] Backend error body:", rawText || "(empty)");
-      throw new Error(errorMessage);
+      throw new BackendAPIError(response.status, errorMessage);
     }
 
     const data = await response.json();
@@ -262,8 +289,11 @@ function estimateNutrition(description: string): NutritionResult {
         fats,
         proteins: protein,
         calories,
+        evidence: description ? "user_text" : "inferred",
       },
     ],
+    confidence: description ? 0.35 : 0.2,
+    foodCategory: description ? "text_only" : "unknown",
   };
 }
 
@@ -325,6 +355,10 @@ function normalizeIngredientsFromApi(raw: unknown): IngredientItem[] {
                   (typeof data.fats === "number" ? data.fats : 0) * 9) as number) *
                   10
               ) / 10,
+        evidence:
+          data.evidence === "visible" || data.evidence === "user_text" || data.evidence === "inferred"
+            ? data.evidence
+            : undefined,
         sources:
           Array.isArray(data.sources) && data.sources.length > 0
             ? data.sources
@@ -349,7 +383,8 @@ function normalizeIngredientsFromApi(raw: unknown): IngredientItem[] {
 export async function editLogWithAI(
   ingredients: IngredientItem[],
   correction: string,
-  imageUri?: string
+  imageUri?: string,
+  sourceUrl?: string
 ): Promise<NutritionResult> {
   if (!BACKEND_URL) {
     throw new Error("Backend URL not configured");
@@ -371,6 +406,7 @@ export async function editLogWithAI(
   }
 
   const imageBase64 = imageUri ? await imageUriToBase64(imageUri) : null;
+  const normalizedSourceUrl = sourceUrl?.trim();
 
   const timeoutPromise = new Promise<never>((_, reject) =>
     setTimeout(() => reject(new Error("Request timed out.")), BACKEND_REQUEST_TIMEOUT_MS)
@@ -390,6 +426,7 @@ export async function editLogWithAI(
               ingredients,
               correction,
               ...(imageBase64 ? { image: imageBase64 } : {}),
+              ...(normalizedSourceUrl ? { sourceUrl: normalizedSourceUrl } : {}),
             }),
           }),
           timeoutPromise,
@@ -447,6 +484,13 @@ export async function editLogWithAI(
         analysis: data.analysis,
         logName: typeof data.logName === "string" ? data.logName.trim() : "Meal",
         ingredients: normalizeIngredientsFromApi(data.ingredients),
+        mealNotes: typeof data.mealNotes === "string" ? data.mealNotes : undefined,
+        confidence: typeof data.confidence === "number" ? data.confidence : undefined,
+        foodCategory: typeof data.foodCategory === "string" ? data.foodCategory : undefined,
+        productImageUrl:
+          typeof data.productImageUrl === "string" && data.productImageUrl.trim().startsWith("https://")
+            ? data.productImageUrl.trim()
+            : undefined,
       };
     } else {
       throw new Error("Invalid response format from backend");
@@ -486,7 +530,7 @@ export async function generateObject<T>(options: {
     const textPart = content.find((c: { type?: string; text?: string }) => c.type === "text" && c.text);
     if (textPart && typeof (textPart as { text?: string }).text === "string") {
       const t = (textPart as { text: string }).text;
-      const ctx = t.match(/Additional context:\s*(.+)/i);
+      const ctx = t.match(/(?:Additional context|Description):\s*(.+)/i);
       description = ctx ? ctx[1].trim() : undefined;
     }
 
@@ -510,8 +554,8 @@ export async function generateObject<T>(options: {
       console.log("[Cali API] Backend success, calories:", result.calories);
       return result as T;
     } catch (error) {
-      console.error("[Cali API] Backend failed, falling back to mock:", describeFetchError(error));
-      return estimateNutrition(description || "meal") as T;
+      console.error("[Cali API] Backend analysis failed:", describeFetchError(error));
+      throw error instanceof Error ? error : new Error("Backend analysis failed");
     }
   }
 
@@ -522,4 +566,97 @@ export async function generateObject<T>(options: {
 /** Mock: return static tips. Replace with your AI provider for real tips. */
 export async function generateText(_prompt: string): Promise<string> {
   return "Keep up the great work tracking your nutrition! Stay consistent with your goals and adjust portions based on your progress.";
+}
+
+function buildMockNutritionistReply(message: string, context?: NutritionistChatContext): string {
+  const hasMeals = (context?.recentMeals?.length ?? 0) > 0;
+  const totals = context?.todayTotals;
+  const goal = context?.goals?.goal?.trim();
+  if (goal && goal !== "-") {
+    return `Got it. I’ll keep "${goal}" in mind. Based on your logs, I’d tune advice around consistency first, then portions and protein. What usually makes this goal hardest during the day?`;
+  }
+  if (!hasMeals) {
+    return "Tell me your main goal first: fat loss, muscle gain, energy, digestion, performance, or just eating more consistently?";
+  }
+  if (totals && totals.calories > 0) {
+    return `Today is at about ${Math.round(totals.calories)} kcal with ${Math.round(totals.protein)}g protein. Based on that, I can help tune your next meals once I know your goal and typical training schedule.`;
+  }
+  return `Got it. For "${message.trim()}", I’d first connect this to your goal, meal timing, and appetite pattern. What are you optimizing for right now?`;
+}
+
+function compactMealForChat(entry: FoodEntry) {
+  return {
+    timestamp: entry.timestamp,
+    description: entry.description,
+    nutrition: entry.nutrition,
+    ingredients: entry.ingredients.map((ingredient) => ingredient.name).filter(Boolean).slice(0, 20),
+    mealNotes: entry.mealNotes,
+  };
+}
+
+export async function chatWithNutritionist(
+  messages: NutritionistChatMessage[],
+  context?: NutritionistChatContext
+): Promise<string> {
+  const lastUserMessage = [...messages].reverse().find((message) => message.role === "user");
+
+  if (process.env.EXPO_PUBLIC_E2E === "1") {
+    return buildMockNutritionistReply(lastUserMessage?.content || "", context);
+  }
+
+  if (!BACKEND_URL) {
+    return buildMockNutritionistReply(lastUserMessage?.content || "", context);
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData.session?.access_token) {
+      headers["Authorization"] = `Bearer ${sessionData.session.access_token}`;
+    }
+  } catch (e) {
+    console.log("[Cali API] Session retrieval failed:", e);
+  }
+
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("Request timed out.")), BACKEND_REQUEST_TIMEOUT_MS)
+  );
+
+  const response = await Promise.race([
+    fetch(`${BACKEND_URL}/api/nutritionist-chat`, {
+      method: "POST",
+      headers,
+      cache: "no-store",
+      body: JSON.stringify({
+        messages: messages.slice(-30),
+        todayTotals: context?.todayTotals,
+        goals: context?.goals,
+        recentMeals: context?.recentMeals?.slice(0, 20).map(compactMealForChat) ?? [],
+      }),
+    }),
+    timeoutPromise,
+  ]);
+
+  if (!response.ok) {
+    const rawText = await response.text().catch(() => "");
+    let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    if (rawText) {
+      try {
+        const parsed = JSON.parse(rawText) as { message?: string; detail?: string };
+        errorMessage = parsed.message || parsed.detail || rawText;
+      } catch {
+        errorMessage = rawText;
+      }
+    }
+    throw new Error(errorMessage);
+  }
+
+  const data = await response.json();
+  if (typeof data.message !== "string" || data.message.trim().length === 0) {
+    throw new Error("Invalid response format from backend");
+  }
+  return data.message.trim();
 }

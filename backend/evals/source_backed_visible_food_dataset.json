@@ -1,0 +1,1350 @@
+{
+  "name": "source_backed_visible_food_eval",
+  "version": 1,
+  "description": "Public-source image examples for testing visible-food recognition. Expected labels are intentionally conservative; source URLs and direct image URLs come from Wikimedia Commons.",
+  "source_policy": "Use for evaluation only; respect each image's linked license and attribution.",
+  "examples": [
+    {
+      "id": "simple-apple",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:A_red_yellow_Apple.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/6/6c/A_red_yellow_Apple.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/w/index.php?title=User:Ucefkhc&amp;action=edit&amp;redlink=1\" class=\"new\" title=\"User:Ucefkhc (page does not exist)\">Youssef KH </a>",
+      "source_title": "File:A red yellow Apple.jpg",
+      "query": "red apple food photograph",
+      "category": "simple_food",
+      "expected_visible_ingredients": [
+        {
+          "name": "apple",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "banana",
+        "granola"
+      ],
+      "notes": "Single whole fruit."
+    },
+    {
+      "id": "simple-banana",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Banana-Single.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/8/8a/Banana-Single.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 3.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Evan-Amos\" title=\"User:Evan-Amos\">Evan-Amos</a>",
+      "source_title": "File:Banana-Single.jpg",
+      "query": "Banana-Single",
+      "category": "simple_food",
+      "expected_visible_ingredients": [
+        {
+          "name": "banana",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "granola",
+        "strawberry"
+      ],
+      "notes": "Single fruit where banana is truly visible."
+    },
+    {
+      "id": "simple-strawberries",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Adriaen_Coorte_-_A_bowl_of_strawberries_and_a_spray_of_gooseberries.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/5/59/Adriaen_Coorte_-_A_bowl_of_strawberries_and_a_spray_of_gooseberries.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "Public domain",
+      "attribution": "<bdi><a href=\"https://en.wikipedia.org/wiki/en:Adriaen_Coorte\" class=\"extiw\" title=\"w:en:Adriaen Coorte\"><span title=\"painter from the Northern Netherlands (1665-1707)\">Adriaen Coorte</span></a></bdi>",
+      "source_title": "File:Adriaen Coorte - A bowl of strawberries and a spray of gooseberries.jpg",
+      "query": "strawberries bowl photograph",
+      "category": "simple_food",
+      "expected_visible_ingredients": [
+        {
+          "name": "strawberries",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "banana",
+        "granola"
+      ],
+      "notes": "Red berries should not imply toppings."
+    },
+    {
+      "id": "simple-orange",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Citrus_Elegance_Blood_Orange_Slices_in_Wooden_Nest_by_Raju_C_Reddy.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/a/a5/Citrus_Elegance_Blood_Orange_Slices_in_Wooden_Nest_by_Raju_C_Reddy.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC0",
+      "attribution": "rajucreddy",
+      "source_title": "File:Citrus Elegance Blood Orange Slices in Wooden Nest by Raju C Reddy.jpg",
+      "query": "orange fruit slices photograph",
+      "category": "simple_food",
+      "expected_visible_ingredients": [
+        {
+          "name": "orange",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "banana",
+        "granola"
+      ],
+      "notes": "Citrus slices."
+    },
+    {
+      "id": "simple-avocado",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Liat_Portal_for_Foodie_Disorder_-_Avocado_Halves.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/a/af/Liat_Portal_for_Foodie_Disorder_-_Avocado_Halves.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/w/index.php?title=User:HaJunkiyada&amp;action=edit&amp;redlink=1\" class=\"new\" title=\"User:HaJunkiyada (page does not exist)\">HaJunkiyada</a>",
+      "source_title": "File:Liat Portal for Foodie Disorder - Avocado Halves.jpg",
+      "query": "avocado halves photograph",
+      "category": "simple_food",
+      "expected_visible_ingredients": [
+        {
+          "name": "avocado",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "egg",
+        "toast"
+      ],
+      "notes": "Plain avocado without toast assumptions."
+    },
+    {
+      "id": "simple-fried-egg",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:02021_0912_(6)_Fried_egg_in_the_basket.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/d/d6/02021_0912_%286%29_Fried_egg_in_the_basket.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/w/index.php?title=User:Silar&amp;action=edit&amp;redlink=1\" class=\"new\" title=\"User:Silar (page does not exist)\">Silar</a>",
+      "source_title": "File:02021 0912 (6) Fried egg in the basket.jpg",
+      "query": "fried egg photograph",
+      "category": "simple_food",
+      "expected_visible_ingredients": [
+        {
+          "name": "egg",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "toast",
+        "bacon"
+      ],
+      "notes": "Simple cooked egg."
+    },
+    {
+      "id": "simple-boiled-eggs",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Cod_liver,_hard-boiled_egg,_and_black_pepper_atop_lentils_cooked_with_goose_fat_-_Massachusetts.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/3/36/Cod_liver%2C_hard-boiled_egg%2C_and_black_pepper_atop_lentils_cooked_with_goose_fat_-_Massachusetts.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Daderot\" title=\"User:Daderot\">Daderot</a>",
+      "source_title": "File:Cod liver, hard-boiled egg, and black pepper atop lentils cooked with goose fat - Massachusetts.jpg",
+      "query": "Eggs hard-boiled Massachusetts",
+      "category": "simple_food",
+      "expected_visible_ingredients": [
+        {
+          "name": "egg",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "mayonnaise",
+        "toast"
+      ],
+      "notes": "Eggs only."
+    },
+    {
+      "id": "simple-grilled-salmon",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:2022-01-29_20_53_20_Blackened_Cajun_Salmon_(6_oz._blackened_and_grilled_salmon_fillet_with_garlic_mashed_potatoes_and_steamed_broccoli)_at_the_Applebee%27s_in_Fair_Lakes,_Fairfax_County,_Virginia.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/2/24/2022-01-29_20_53_20_Blackened_Cajun_Salmon_%286_oz._blackened_and_grilled_salmon_fillet_with_garlic_mashed_potatoes_and_steamed_broccoli%29_at_the_Applebee%27s_in_Fair_Lakes%2C_Fairfax_County%2C_Virginia.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Famartin\" title=\"User:Famartin\">Famartin</a>",
+      "source_title": "File:2022-01-29 20 53 20 Blackened Cajun Salmon (6 oz. blackened and grilled salmon fillet with garlic mashed potatoes and steamed broccoli) at the Applebee's in Fair Lakes, Fairfax County, Virginia.jpg",
+      "query": "grilled salmon fillet photograph",
+      "category": "simple_food",
+      "expected_visible_ingredients": [
+        {
+          "name": "salmon",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "rice",
+        "potatoes"
+      ],
+      "notes": "Protein-only or primary protein image."
+    },
+    {
+      "id": "simple-steak",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Grilled_beef_steak_in_Cala_P%C3%AD,_Mallorca,_Spain.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/7/7a/Grilled_beef_steak_in_Cala_P%C3%AD%2C_Mallorca%2C_Spain.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 3.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/w/index.php?title=User:JIP&amp;action=edit&amp;redlink=1\" class=\"new\" title=\"User:JIP (page does not exist)\">JIP</a>",
+      "source_title": "File:Grilled beef steak in Cala Pí, Mallorca, Spain.jpg",
+      "query": "grilled steak photograph",
+      "category": "simple_food",
+      "expected_visible_ingredients": [
+        {
+          "name": "steak",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "potatoes",
+        "butter"
+      ],
+      "notes": "Meat should not imply sides."
+    },
+    {
+      "id": "simple-chicken-breast",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:2020-08-30_06_00_51_A_serving_of_Healthy_Choice_Cafe_Steamers_Grilled_Chicken_Marinara_with_Parmesan_(Grilled_Chicken_Breast_with_Penne_Pasta_%26_Broccoli)_in_the_Dulles_section_of_Sterling,_Loudoun_County,_Virginia.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/b/b1/2020-08-30_06_00_51_A_serving_of_Healthy_Choice_Cafe_Steamers_Grilled_Chicken_Marinara_with_Parmesan_%28Grilled_Chicken_Breast_with_Penne_Pasta_%26_Broccoli%29_in_the_Dulles_section_of_Sterling%2C_Loudoun_County%2C_Virginia.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Famartin\" title=\"User:Famartin\">Famartin</a>",
+      "source_title": "File:2020-08-30 06 00 51 A serving of Healthy Choice Cafe Steamers Grilled Chicken Marinara with Parmesan (Grilled Chicken Breast with Penne Pasta & Broccoli) in the Dulles section of Sterling, Loudoun County, Virginia.jpg",
+      "query": "grilled chicken breast photograph",
+      "category": "simple_food",
+      "expected_visible_ingredients": [
+        {
+          "name": "chicken",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "rice",
+        "broccoli"
+      ],
+      "notes": "Chicken without assumed sides."
+    },
+    {
+      "id": "plate-chicken-rice-broccoli",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Liat_Portal_for_Foodie_Disorder_-_Healthy_low-fat_chicken,_rice,_broccoli,_and_sweet_potato_plate.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/6/6f/Liat_Portal_for_Foodie_Disorder_-_Healthy_low-fat_chicken%2C_rice%2C_broccoli%2C_and_sweet_potato_plate.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/w/index.php?title=User:HaJunkiyada&amp;action=edit&amp;redlink=1\" class=\"new\" title=\"User:HaJunkiyada (page does not exist)\">HaJunkiyada</a>",
+      "source_title": "File:Liat Portal for Foodie Disorder - Healthy low-fat chicken, rice, broccoli, and sweet potato plate.jpg",
+      "query": "chicken rice broccoli plate photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "chicken",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "rice",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "broccoli",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "granola",
+        "banana"
+      ],
+      "notes": "Classic mixed plate."
+    },
+    {
+      "id": "plate-steak-potatoes",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Lunch_dish_(pumpkin_sauce,_potatoes_and_chicken_steak).jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/3/35/Lunch_dish_%28pumpkin_sauce%2C_potatoes_and_chicken_steak%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:PetarM\" title=\"User:PetarM\">Petar Milošević</a>",
+      "source_title": "File:Lunch dish (pumpkin sauce, potatoes and chicken steak).jpg",
+      "query": "steak potatoes plate photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "steak",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "potatoes",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "rice",
+        "granola"
+      ],
+      "notes": "Meat and potatoes."
+    },
+    {
+      "id": "plate-fish-and-chips",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Fish_and_Chips_-_geograph.org.uk_-_665059.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/8/86/Fish_and_Chips_-_geograph.org.uk_-_665059.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 2.0",
+      "attribution": "<a rel=\"nofollow\" class=\"external text\" href=\"https://www.geograph.org.uk/profile/1904\">Richard Croft</a>",
+      "source_title": "File:Fish and Chips - geograph.org.uk - 665059.jpg",
+      "query": "fish and chips photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "fish",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "fries",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "rice",
+        "salad"
+      ],
+      "notes": "Fried fish with fries."
+    },
+    {
+      "id": "plate-sushi",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Okami_variety_sushi_platter.JPG",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/f/f2/Okami_variety_sushi_platter.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 3.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:BrokenSphere\" title=\"User:BrokenSphere\">BrokenSphere</a>",
+      "source_title": "File:Okami variety sushi platter.JPG",
+      "query": "sushi platter photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "sushi",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "rice",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "fish",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "granola",
+        "banana"
+      ],
+      "notes": "Sushi pieces with visible rice/fish."
+    },
+    {
+      "id": "salad-greek",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:-2019-06-05_Tomato,_black_olive_and_feta_Greek_salad.JPG",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/8/88/-2019-06-05_Tomato%2C_black_olive_and_feta_Greek_salad.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<table style=\"margin: 1.5em auto; width:60%; background-color:#CCCCCC; border:2px solid #aaaaaa; padding:1px;\" cellspacing=\"10\">\n\n<tbody><tr>\n<td align=\"center\"><span typeof=\"mw:File\"><a href=\"//commons.wikimedia.org/wiki/File:Flag-globe-2.gif\" class=\"mw-file-description\"><img src=\"https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Flag-globe-2.gif/120px-Flag-globe-2.gif\" decoding=\"async\" width=\"80\" height=\"79\" class=\"mw-file-element\" srcset=\"https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Flag-globe-2.gif/250px-Flag-globe-2.gif 2x\" data-file-width=\"257\" data-file-height=\"254\"></a></span>\n<p><b>Kolforn</b> <small>(<a href=\"//commons.wikimedia.org/wiki/User:Kolforn\" title=\"User:Kolforn\">Kolforn</a>)</small><br>\n<i>I'd appreciate if you could mail me <b>(Kolforn@gmail.com)</b> if you want to use this picture out of the Wikimedia project scope.</i>\n</p>\n</td></tr></tbody></table>\n<div class=\"responsive-license-cc layouttemplate licensetpl\" dir=\"ltr\" lang=\"en\"><div class=\"rlicense-icons\"><span class=\"skin-invert\" typeof=\"mw:File\"><span title=\"w:en:Creative Commons\"><img alt=\"w:en:Creative Commons\" src=\"https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/CC_some_rights_reserved.svg/120px-CC_some_rights_reserved.svg.png\" decoding=\"async\" width=\"90\" height=\"36\" class=\"mw-file-element\" srcset=\"https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/CC_some_rights_reserved.svg/250px-CC_some_rights_reserved.svg.png 2x\" data-file-width=\"744\" data-file-height=\"300\"></span></span><br>\n<span class=\"skin-invert\" typeof=\"mw:File\"><span title=\"attribution\"><img alt=\"attribution\" src=\"https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Cc-by_new_white.svg/40px-Cc-by_new_white.svg.png\" decoding=\"async\" width=\"24\" height=\"24\" class=\"mw-file-element\" srcset=\"https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Cc-by_new_white.svg/60px-Cc-by_new_white.svg.png 2x\" data-file-width=\"64\" data-file-height=\"64\"></span></span> <span class=\"skin-invert\" typeof=\"mw:File\"><span title=\"share alike\"><img alt=\"share alike\" src=\"https://upload.wikimedia.org/wikipedia/commons/thumb/d/df/Cc-sa_white.svg/40px-Cc-sa_white.svg.png\" decoding=\"async\" width=\"24\" height=\"24\" class=\"mw-file-element\" srcset=\"https://upload.wikimedia.org/wikipedia/commons/thumb/d/df/Cc-sa_white.svg/60px-Cc-sa_white.svg.png 2x\" data-file-width=\"64\" data-file-height=\"64\"></span></span></div><div class=\"rlicense-text\"><div class=\"rlicense-declaration\">This file is licensed under the <a href=\"https://en.wikipedia.org/wiki/en:Creative_Commons\" class=\"extiw\" title=\"w:en:Creative Commons\">Creative Commons</a> <a href=\"//creativecommons.org/licenses/by-sa/4.0/deed.en\" class=\"extiw\" title=\"creativecommons:by-sa/4.0/deed.en\">Attribution-Share Alike 4.0 International</a> license.</div><div class=\"rlicense-desc\" style=\"text-align:start;\" lang=\"en\">\n<dl><dd>You are free:\n<ul><li><b>to share</b> – to copy, distribute and transmit the work</li>\n<li><b>to remix</b> – to adapt the work</li></ul></dd>\n<dd>Under the following conditions:\n<ul><li><b>attribution</b> – You must give appropriate credit, provide a link to the license, and indicate if changes were made. You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use.</li>\n<li><b>share alike</b> – If you remix, transform, or build upon the material, you must distribute your contributions under the <a href=\"https://creativecommons.org/share-your-work/licensing-considerations/compatible-licenses\" class=\"extiw\" title=\"ccorg:share-your-work/licensing-considerations/compatible-licenses\">same or compatible license</a> as the original.</li></ul></dd></dl></div><span class=\"licensetpl_link\" style=\"display:none;\">https://creativecommons.org/licenses/by-sa/4.0</span><span class=\"licensetpl_short\" style=\"display:none;\">CC BY-SA 4.0 </span><span class=\"licensetpl_long\" style=\"display:none;\">Creative Commons Attribution-Share Alike 4.0 </span><span class=\"licensetpl_link_req\" style=\"display:none;\">true</span><span class=\"licensetpl_attr_req\" style=\"display:none;\">true</span></div></div>",
+      "source_title": "File:-2019-06-05 Tomato, black olive and feta Greek salad.JPG",
+      "query": "Greek salad photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "tomato",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "cucumber",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "feta",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "chicken",
+        "granola"
+      ],
+      "notes": "Salad with visible vegetables and cheese."
+    },
+    {
+      "id": "salad-caesar",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Caesar_salad_(2).jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/2/23/Caesar_salad_%282%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY 2.0",
+      "attribution": "<a rel=\"nofollow\" class=\"external text\" href=\"https://www.flickr.com/people/54359128@N00\">Geoff Peters</a> from Vancouver, BC, Canada",
+      "source_title": "File:Caesar salad (2).jpg",
+      "query": "Caesar salad photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "lettuce",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "croutons",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "strawberries",
+        "banana"
+      ],
+      "notes": "Leafy salad with croutons."
+    },
+    {
+      "id": "salad-caprese",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Buffalo_mozzarella_and_tomato_salad_in_BW.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/1/15/Buffalo_mozzarella_and_tomato_salad_in_BW.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Peachyeung316\" title=\"User:Peachyeung316\">Peachyeung316</a>",
+      "source_title": "File:Buffalo mozzarella and tomato salad in BW.jpg",
+      "query": "caprese salad photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "tomato",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "mozzarella",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "basil",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "lettuce",
+        "granola"
+      ],
+      "notes": "Simple visible components."
+    },
+    {
+      "id": "salad-green",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Lettuce_in_salad_spinner.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/6/66/Lettuce_in_salad_spinner.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY 2.0",
+      "attribution": "<a rel=\"nofollow\" class=\"external text\" href=\"https://www.flickr.com/people/29233640@N07\">Robert Couse-Baker</a> from Sacramento, California",
+      "source_title": "File:Lettuce in salad spinner.jpg",
+      "query": "lettuce salad photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "lettuce",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "chicken",
+        "cheese",
+        "granola"
+      ],
+      "notes": "Conservative leafy salad case."
+    },
+    {
+      "id": "salad-fruit",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Fruit_salad_2.JPG",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/6/67/Fruit_salad_2.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY 2.5",
+      "attribution": "<a href=\"//commons.wikimedia.org/w/index.php?title=User:Bangin&amp;action=edit&amp;redlink=1\" class=\"new\" title=\"User:Bangin (page does not exist)\">User:Bangin</a>",
+      "source_title": "File:Fruit salad 2.JPG",
+      "query": "fruit salad photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "fruit",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "granola",
+        "yogurt"
+      ],
+      "notes": "Mixed fruit should not imply yogurt."
+    },
+    {
+      "id": "bowl-oatmeal-berries",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Oatmeal_with_berries_(26253030424).jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/7/75/Oatmeal_with_berries_%2826253030424%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY 2.0",
+      "attribution": "<a rel=\"nofollow\" class=\"external text\" href=\"https://www.flickr.com/people/95142644@N00\">Ruth Hartnup</a> from Vancouver, Canada",
+      "source_title": "File:Oatmeal with berries (26253030424).jpg",
+      "query": "porridge with berries",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "oatmeal",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "berries",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "banana",
+        "granola"
+      ],
+      "notes": "Bowl where oats are source-backed."
+    },
+    {
+      "id": "bowl-rice",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Liat_Portal_for_Foodie_Disorder_-_Grilled_chicken_with_rice,_potatoes_and_vegetables.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/8/85/Liat_Portal_for_Foodie_Disorder_-_Grilled_chicken_with_rice%2C_potatoes_and_vegetables.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/w/index.php?title=User:HaJunkiyada&amp;action=edit&amp;redlink=1\" class=\"new\" title=\"User:HaJunkiyada (page does not exist)\">HaJunkiyada</a>",
+      "source_title": "File:Liat Portal for Foodie Disorder - Grilled chicken with rice, potatoes and vegetables.jpg",
+      "query": "rice bowl vegetables photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "rice",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "vegetables",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "granola",
+        "banana"
+      ],
+      "notes": "Savory bowl case."
+    },
+    {
+      "id": "bowl-burrito",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Naked_Burrito_Bowl_at_Taco_Bell_in_Iso_Omena.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/d/d7/Naked_Burrito_Bowl_at_Taco_Bell_in_Iso_Omena.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/w/index.php?title=User:JIP&amp;action=edit&amp;redlink=1\" class=\"new\" title=\"User:JIP (page does not exist)\">JIP</a>",
+      "source_title": "File:Naked Burrito Bowl at Taco Bell in Iso Omena.jpg",
+      "query": "burrito bowl photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "rice",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "beans",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "granola",
+        "banana"
+      ],
+      "notes": "Savory multi-ingredient bowl."
+    },
+    {
+      "id": "soup-tomato",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Red_pepper_and_tomato_soup_-_Massachusetts.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/7/7d/Red_pepper_and_tomato_soup_-_Massachusetts.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Daderot\" title=\"User:Daderot\">Daderot</a>",
+      "source_title": "File:Red pepper and tomato soup - Massachusetts.jpg",
+      "query": "tomato soup photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "tomato soup",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "rice",
+        "granola"
+      ],
+      "notes": "Soup should remain soup."
+    },
+    {
+      "id": "soup-ramen",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Akamaru_Ramen_bowl,_Ippudo_Louvre,_Paris_20_March_2016.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/b/b7/Akamaru_Ramen_bowl%2C_Ippudo_Louvre%2C_Paris_20_March_2016.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY 2.0",
+      "attribution": "<a rel=\"nofollow\" class=\"external text\" href=\"https://www.flickr.com/people/22539273@N00\">Guilhem Vellut</a> from Paris, France",
+      "source_title": "File:Akamaru Ramen bowl, Ippudo Louvre, Paris 20 March 2016.jpg",
+      "query": "ramen bowl photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "noodles",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "broth",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "granola",
+        "banana"
+      ],
+      "notes": "Noodle soup."
+    },
+    {
+      "id": "soup-pho",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Chicken-pho-vietnamese-soup.JPG",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/b/b4/Chicken-pho-vietnamese-soup.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY 2.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/w/index.php?title=User:Anonymous_Cow&amp;action=edit&amp;redlink=1\" class=\"new\" title=\"User:Anonymous Cow (page does not exist)\">Anonymous Cow</a>",
+      "source_title": "File:Chicken-pho-vietnamese-soup.JPG",
+      "query": "pho soup photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "noodles",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "broth",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "granola",
+        "banana"
+      ],
+      "notes": "Another noodle soup style."
+    },
+    {
+      "id": "soup-lentil",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Lentil_soup.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/3/37/Lentil_soup.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Gaurav_Dhwaj_Khadka\" title=\"User:Gaurav Dhwaj Khadka\">Gaurav Dhwaj Khadka</a>",
+      "source_title": "File:Lentil soup.jpg",
+      "query": "lentil soup photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "lentil soup",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "rice",
+        "granola"
+      ],
+      "notes": "Thick legume soup."
+    },
+    {
+      "id": "soup-miso",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Miso_Soup.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/0/00/Miso_Soup.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "Public domain",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Ish-ka\" title=\"User:Ish-ka\">ish-ka</a>",
+      "source_title": "File:Miso Soup.jpg",
+      "query": "miso soup photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "miso soup",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "rice",
+        "granola"
+      ],
+      "notes": "Clear soup with tofu/seaweed may be visible."
+    },
+    {
+      "id": "complex-hamburger",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:NCI_Visuals_Food_Hamburger.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/6/62/NCI_Visuals_Food_Hamburger.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "Public domain",
+      "attribution": "Len Rizzi (photographer)",
+      "source_title": "File:NCI Visuals Food Hamburger.jpg",
+      "query": "NCI Visuals Food Hamburger",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "hamburger",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "fries",
+        "cola"
+      ],
+      "notes": "Sandwich without assumed sides."
+    },
+    {
+      "id": "complex-spaghetti",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:HK_Food_%E6%B3%A2%E4%BB%94_Eat-East_%E9%AE%AE%E8%8C%84%E7%89%9B%E8%82%89%E9%86%AC%E6%84%8F%E7%B2%89_Beet_in_Tomato_Sauce_with_Spaghetti_03_read_to_eat.JPG",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/c/cc/HK_Food_%E6%B3%A2%E4%BB%94_Eat-East_%E9%AE%AE%E8%8C%84%E7%89%9B%E8%82%89%E9%86%AC%E6%84%8F%E7%B2%89_Beet_in_Tomato_Sauce_with_Spaghetti_03_read_to_eat.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 3.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/w/index.php?title=User:Bobogoodfans&amp;action=edit&amp;redlink=1\" class=\"new\" title=\"User:Bobogoodfans (page does not exist)\">Bobogoodfans</a>",
+      "source_title": "File:HK Food 波仔 Eat-East 鮮茄牛肉醬意粉 Beet in Tomato Sauce with Spaghetti 03 read to eat.JPG",
+      "query": "spaghetti tomato sauce photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "spaghetti",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "meatballs",
+        "cheese"
+      ],
+      "notes": "Pasta without automatic extras."
+    },
+    {
+      "id": "complex-taco",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Taco-de-Huitlacoche.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/8/8a/Taco-de-Huitlacoche.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 2.5",
+      "attribution": "Cuauhtemoc F Ramirez A",
+      "source_title": "File:Taco-de-Huitlacoche.jpg",
+      "query": "taco photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "taco",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "rice",
+        "beans"
+      ],
+      "notes": "Single handheld food without assumed sides."
+    },
+    {
+      "id": "breakfast-croissant-coffee",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Croissant_and_coffee_at_L%C3%A4nsiterminaali_2.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/d/d8/Croissant_and_coffee_at_L%C3%A4nsiterminaali_2.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/w/index.php?title=User:JIP&amp;action=edit&amp;redlink=1\" class=\"new\" title=\"User:JIP (page does not exist)\">JIP</a>",
+      "source_title": "File:Croissant and coffee at Länsiterminaali 2.jpg",
+      "query": "croissant coffee photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "croissant",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "coffee",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "egg",
+        "granola"
+      ],
+      "notes": "Breakfast pairing."
+    },
+    {
+      "id": "breakfast-pancakes-blueberries",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:American_Pancakes_with_banana_and_blueberries_-_Jonny%27s_Goring_Bar_%26_Kitchen_2026-01-29.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/5/51/American_Pancakes_with_banana_and_blueberries_-_Jonny%27s_Goring_Bar_%26_Kitchen_2026-01-29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Onthewings\" title=\"User:Onthewings\">Andy Li</a>",
+      "source_title": "File:American Pancakes with banana and blueberries - Jonny's Goring Bar & Kitchen 2026-01-29.jpg",
+      "query": "pancakes blueberries photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "pancakes",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "blueberries",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "banana",
+        "granola"
+      ],
+      "notes": "Pancake topping case."
+    },
+    {
+      "id": "breakfast-waffles-strawberries",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Waffles,_banana,_kiwi_fruit,_and_strawberries,_with_maple_syrup_and_powdered_sugar_-_Auckland,_New_Zealand.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/b/bf/Waffles%2C_banana%2C_kiwi_fruit%2C_and_strawberries%2C_with_maple_syrup_and_powdered_sugar_-_Auckland%2C_New_Zealand.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Daderot\" title=\"User:Daderot\">Daderot</a>",
+      "source_title": "File:Waffles, banana, kiwi fruit, and strawberries, with maple syrup and powdered sugar - Auckland, New Zealand.jpg",
+      "query": "waffles strawberries photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "waffles",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "strawberries",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "banana",
+        "granola"
+      ],
+      "notes": "Waffle topping case."
+    },
+    {
+      "id": "breakfast-avocado-toast",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Avocado_toast_at_the_girl_%26_the_fig_-_Sarah_Stierch.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/1/18/Avocado_toast_at_the_girl_%26_the_fig_-_Sarah_Stierch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Missvain\" title=\"User:Missvain\">Sarah Stierch</a>",
+      "source_title": "File:Avocado toast at the girl & the fig - Sarah Stierch.jpg",
+      "query": "avocado toast photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "avocado",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "toast",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "egg",
+        "bacon"
+      ],
+      "notes": "Toast should not imply egg."
+    },
+    {
+      "id": "breakfast-cereal-milk",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Cereal_with_Milk_(Unsplash).jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/f/f8/Cereal_with_Milk_%28Unsplash%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC0",
+      "attribution": "Ryan Pouncy <a rel=\"nofollow\" class=\"external text\" href=\"https://unsplash.com/@pixelperfect\">pixelperfect</a>",
+      "source_title": "File:Cereal with Milk (Unsplash).jpg",
+      "query": "Cereal with Milk Unsplash",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "cereal",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        },
+        {
+          "name": "milk",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "banana",
+        "strawberries"
+      ],
+      "notes": "Cereal bowl with milk."
+    },
+    {
+      "id": "drink-black-coffee",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Black_coffee_in_a_white_cup_served_on_a_saucer_with_stirring_spoon.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/f/f7/Black_coffee_in_a_white_cup_served_on_a_saucer_with_stirring_spoon.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY 2.0",
+      "attribution": "<a rel=\"nofollow\" class=\"external text\" href=\"https://www.flickr.com/photos/72949902@N00\">Evan Swigart</a> from Chicago, USA",
+      "source_title": "File:Black coffee in a white cup served on a saucer with stirring spoon.jpg",
+      "query": "black coffee cup photograph",
+      "category": "beverage",
+      "expected_visible_ingredients": [
+        {
+          "name": "coffee",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "milk",
+        "sugar"
+      ],
+      "notes": "Plain beverage case."
+    },
+    {
+      "id": "drink-orange-juice",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Orange_juice_1_edit1.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/6/67/Orange_juice_1_edit1.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "Public domain",
+      "attribution": "<ul><li>Agency of the United States Department of Agriculture</li>\n<li>Edited Version by: <a href=\"//commons.wikimedia.org/wiki/User:Arad\" title=\"User:Arad\">Arad</a></li></ul>",
+      "source_title": "File:Orange juice 1 edit1.jpg",
+      "query": "Orange juice 1 edit1",
+      "category": "beverage",
+      "expected_visible_ingredients": [
+        {
+          "name": "orange juice",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "milk",
+        "banana"
+      ],
+      "notes": "Juice case."
+    },
+    {
+      "id": "drink-smoothie",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Glass_of_strawberry_smoothie_(6828826294).jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/9/93/Glass_of_strawberry_smoothie_%286828826294%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY 2.0",
+      "attribution": "<a rel=\"nofollow\" class=\"external text\" href=\"https://www.flickr.com/people/73645804@N00\">woodleywonderworks</a>",
+      "source_title": "File:Glass of strawberry smoothie (6828826294).jpg",
+      "query": "Glass of strawberry smoothie",
+      "category": "beverage",
+      "expected_visible_ingredients": [
+        {
+          "name": "smoothie",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "granola",
+        "oats"
+      ],
+      "notes": "Blended drink should not imply toppings."
+    },
+    {
+      "id": "drink-beer",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Per%C5%82a_beer_glass,_Poland,_2019.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/6/67/Per%C5%82a_beer_glass%2C_Poland%2C_2019.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Kgbo\" title=\"User:Kgbo\">Kgbo</a>",
+      "source_title": "File:Perła beer glass, Poland, 2019.jpg",
+      "query": "beer glass photograph",
+      "category": "beverage",
+      "expected_visible_ingredients": [
+        {
+          "name": "beer",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "lemon",
+        "pretzel"
+      ],
+      "notes": "Alcoholic beverage."
+    },
+    {
+      "id": "drink-cola",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:HK_McDonalds_Souvenir_Coca-Cola_Glass_Cup_2.JPG",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/1/11/HK_McDonalds_Souvenir_Coca-Cola_Glass_Cup_2.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 3.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/w/index.php?title=User:Zheuhoikim&amp;action=edit&amp;redlink=1\" class=\"new\" title=\"User:Zheuhoikim (page does not exist)\">Zheuhoikim</a>",
+      "source_title": "File:HK McDonalds Souvenir Coca-Cola Glass Cup 2.JPG",
+      "query": "cola glass photograph",
+      "category": "beverage",
+      "expected_visible_ingredients": [
+        {
+          "name": "cola",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "ice cream",
+        "lemon"
+      ],
+      "notes": "Soda beverage."
+    },
+    {
+      "id": "dessert-ice-cream",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:2023-03-18_16_37_55_Bowl_and_Basket_Pistachio_Almond_ice_cream_in_Westampton_Township,_Burlington_County,_New_Jersey.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/a/a8/2023-03-18_16_37_55_Bowl_and_Basket_Pistachio_Almond_ice_cream_in_Westampton_Township%2C_Burlington_County%2C_New_Jersey.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Famartin\" title=\"User:Famartin\">Famartin</a>",
+      "source_title": "File:2023-03-18 16 37 55 Bowl and Basket Pistachio Almond ice cream in Westampton Township, Burlington County, New Jersey.jpg",
+      "query": "ice cream bowl photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "ice cream",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "granola",
+        "banana"
+      ],
+      "notes": "Dessert bowl, avoid toppings unless visible."
+    },
+    {
+      "id": "dessert-cake-slice",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:A_slice_of_cake_roll.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/9/92/A_slice_of_cake_roll.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 3.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/w/index.php?title=User:ProjectManhattan&amp;action=edit&amp;redlink=1\" class=\"new\" title=\"User:ProjectManhattan (page does not exist)\">ProjectManhattan</a>",
+      "source_title": "File:A slice of cake roll.jpg",
+      "query": "cake slice photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "cake",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "ice cream",
+        "berries"
+      ],
+      "notes": "Cake alone."
+    },
+    {
+      "id": "dessert-cheesecake",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Plain_cheesecake_slice.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/7/75/Plain_cheesecake_slice.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 2.0",
+      "attribution": "<a rel=\"nofollow\" class=\"external text\" href=\"https://flickr.com/people/35034346243@N01\">stu_spivack</a>",
+      "source_title": "File:Plain cheesecake slice.jpg",
+      "query": "cheesecake slice photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "cheesecake",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "strawberries",
+        "cream"
+      ],
+      "notes": "Cheesecake without automatic garnish."
+    },
+    {
+      "id": "dessert-apple-pie",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:2019-11-28_15_43_29_A_large_slice_of_apple_pie_for_Thanksgiving_Dinner_in_the_Parkway_Village_section_of_Ewing_Township,_Mercer_County,_New_Jersey.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/3/36/2019-11-28_15_43_29_A_large_slice_of_apple_pie_for_Thanksgiving_Dinner_in_the_Parkway_Village_section_of_Ewing_Township%2C_Mercer_County%2C_New_Jersey.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Famartin\" title=\"User:Famartin\">Famartin</a>",
+      "source_title": "File:2019-11-28 15 43 29 A large slice of apple pie for Thanksgiving Dinner in the Parkway Village section of Ewing Township, Mercer County, New Jersey.jpg",
+      "query": "apple pie slice photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "apple pie",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "ice cream",
+        "cream"
+      ],
+      "notes": "Pie without assumed side."
+    },
+    {
+      "id": "dessert-donut",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Glazed_wedding_doughnut_(15273067290).jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/2/2e/Glazed_wedding_doughnut_%2815273067290%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY 2.0",
+      "attribution": "<a rel=\"nofollow\" class=\"external text\" href=\"https://www.flickr.com/people/33915164@N00\">Ryan A. Monson</a>",
+      "source_title": "File:Glazed wedding doughnut (15273067290).jpg",
+      "query": "doughnut photograph",
+      "category": "simple_food",
+      "expected_visible_ingredients": [
+        {
+          "name": "doughnut",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "coffee",
+        "cream"
+      ],
+      "notes": "Single pastry."
+    },
+    {
+      "id": "complex-pizza-slice",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Slice_House_Pizza_Pepperoni_slice_(43899573075).jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/f/f1/Slice_House_Pizza_Pepperoni_slice_%2843899573075%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 2.0",
+      "attribution": "<a rel=\"nofollow\" class=\"external text\" href=\"https://www.flickr.com/people/85567416@N03\">Willis Lam</a>",
+      "source_title": "File:Slice House Pizza Pepperoni slice (43899573075).jpg",
+      "query": "pizza slice photograph",
+      "category": "complex_meal",
+      "expected_visible_ingredients": [
+        {
+          "name": "pizza",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "salad",
+        "fries"
+      ],
+      "notes": "Single mixed-food item without assumed sides."
+    },
+    {
+      "id": "packaged-coca-cola-can",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Coca-Cola_can_tops_1.JPG",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/b/b4/Coca-Cola_can_tops_1.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 3.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:BrokenSphere\" title=\"User:BrokenSphere\">BrokenSphere</a>",
+      "source_title": "File:Coca-Cola can tops 1.JPG",
+      "query": "Coca-Cola can photograph",
+      "category": "packaged_product",
+      "expected_visible_ingredients": [
+        {
+          "name": "Coca-Cola",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "coffee",
+        "milk"
+      ],
+      "notes": "Packaged beverage recognition."
+    },
+    {
+      "id": "packaged-yogurt-cup",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Llaeth_y_Llan,_Village_Dairy_yogurt.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/f/fb/Llaeth_y_Llan%2C_Village_Dairy_yogurt.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Vouliagmeni\" title=\"User:Vouliagmeni\">Vouliagmeni</a>",
+      "source_title": "File:Llaeth y Llan, Village Dairy yogurt.jpg",
+      "query": "Llaeth y Llan Village Dairy yogurt",
+      "category": "packaged_product",
+      "expected_visible_ingredients": [
+        {
+          "name": "yogurt",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "granola",
+        "banana"
+      ],
+      "notes": "Packaged dairy without toppings."
+    },
+    {
+      "id": "packaged-chocolate-bar",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Droste_Perfecta_Chocolate_Milk-Sweet.JPG",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/9/93/Droste_Perfecta_Chocolate_Milk-Sweet.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC0",
+      "attribution": "Alf van Beem",
+      "source_title": "File:Droste Perfecta Chocolate Milk-Sweet.JPG",
+      "query": "chocolate bar package photograph",
+      "category": "packaged_product",
+      "expected_visible_ingredients": [
+        {
+          "name": "chocolate",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "nuts",
+        "caramel"
+      ],
+      "notes": "Packaged candy."
+    },
+    {
+      "id": "packaged-potato-chips",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:2020-01-02_02_01_27_The_contents_of_a_bag_of_Utz_Sour_Cream_and_Onion_flavored_Potato_Chips_in_the_Dulles_section_of_Sterling,_Loudoun_County,_Virginia.jpg",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/4/4b/2020-01-02_02_01_27_The_contents_of_a_bag_of_Utz_Sour_Cream_and_Onion_flavored_Potato_Chips_in_the_Dulles_section_of_Sterling%2C_Loudoun_County%2C_Virginia.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Famartin\" title=\"User:Famartin\">Famartin</a>",
+      "source_title": "File:2020-01-02 02 01 27 The contents of a bag of Utz Sour Cream and Onion flavored Potato Chips in the Dulles section of Sterling, Loudoun County, Virginia.jpg",
+      "query": "potato chips bag photograph",
+      "category": "packaged_product",
+      "expected_visible_ingredients": [
+        {
+          "name": "potato chips",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "salsa",
+        "cheese"
+      ],
+      "notes": "Packaged snack."
+    },
+    {
+      "id": "nutrition-label",
+      "source": "wikimedia_commons",
+      "source_url": "https://commons.wikimedia.org/wiki/File:China_nutrition_facts_label.png",
+      "image_url": "https://upload.wikimedia.org/wikipedia/commons/0/08/China_nutrition_facts_label.png?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+      "license": "CC BY-SA 4.0",
+      "attribution": "<a href=\"//commons.wikimedia.org/wiki/User:Khu%27hamgaba_Kitap\" title=\"User:Khu'hamgaba Kitap\">Khu'hamgaba Kitap</a>",
+      "source_title": "File:China nutrition facts label.png",
+      "query": "nutrition facts label photograph",
+      "category": "nutrition_label",
+      "expected_visible_ingredients": [
+        {
+          "name": "nutrition facts label",
+          "required": true,
+          "source_backing": "seeded from source search query and Commons image result"
+        }
+      ],
+      "ambiguous_visible_items": [],
+      "forbidden_ingredients": [
+        "banana",
+        "granola"
+      ],
+      "notes": "Label/OCR path smoke case."
+    }
+  ],
+  "collection_failures": [
+    {
+      "id": "plate-salmon-asparagus",
+      "query": "salmon asparagus plate photograph",
+      "error": "No relevant Commons image for plate-salmon-asparagus: salmon asparagus plate photograph"
+    },
+    {
+      "id": "bowl-yogurt-berries",
+      "query": "yogurt berries bowl photograph",
+      "error": "No relevant Commons image for bowl-yogurt-berries: yogurt berries bowl photograph"
+    }
+  ]
+}

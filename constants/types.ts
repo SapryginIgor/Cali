@@ -18,6 +18,7 @@ export interface IngredientItem {
   fats: number;
   proteins: number;
   calories: number;
+  evidence?: "visible" | "user_text" | "inferred";
   sources?: string[];
   unit?: string;
   preparation?: string;
@@ -44,4 +45,14 @@ export interface FoodEntry {
   aiAnalysis?: string;
   confidence?: number;
   foodCategory?: string;
+}
+
+export interface NutritionGoals {
+  goal: string;
+  targetCalories: string;
+  targetProtein: string;
+  dietaryPreference: string;
+  allergies: string;
+  activity: string;
+  notes: string;
 }

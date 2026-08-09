@@ -4,7 +4,7 @@ Response models for API endpoints
 
 from typing import Literal, Optional
 from pydantic import BaseModel
-from app.models.api import NutritionResult
+from app.models.api import NutritionResult, NutritionistChatResult
 
 
 class AnalyzeFoodResponse(NutritionResult):
@@ -30,3 +30,7 @@ class ErrorResponse(BaseModel):
     """Error response model matching frontend interface"""
     error: str
     message: str
+
+
+class NutritionistChatResponse(NutritionistChatResult):
+    """Response model for the AI nutritionist chat endpoint."""

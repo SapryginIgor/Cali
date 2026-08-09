@@ -43,7 +43,8 @@ export const [SubscriptionProvider, useSubscription] = createContextHook(
       return dbStatus;
     }, [dbStatus, daysRemaining]);
 
-    const isPremium = __DEV__ || status === "trialing" || status === "premium";
+    const isPremium =
+      __DEV__ || !isRevenueCatConfigured || status === "trialing" || status === "premium";
     const isTrialExpired = status === "trial_expired";
 
     const syncEntitlements = useCallback(

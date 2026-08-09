@@ -3,9 +3,16 @@ Request models for API endpoints
 """
 
 from typing import Optional
+from urllib.parse import urlparse
 from pydantic import BaseModel, Field, field_validator
 
-from app.models.api import IngredientItem
+from app.models.api import (
+    ChatMessage,
+    FoodLogContextEntry,
+    IngredientItem,
+    NutritionGoals,
+    NutritionTotals,
+)
 
 
 class AnalyzeFoodRequest(BaseModel):
@@ -49,6 +56,12 @@ class EditLogRequest(BaseModel):
     """Request model for AI-powered meal log editing"""
     ingredients: list[IngredientItem] = Field(..., min_length=1, description="Current ingredients to edit")
     correction: str = Field(..., min_length=1, max_length=500, description="Natural-language correction instruction")
+    sourceUrl: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=2048,
+        description="Optional recipe/product URL to use as the primary nutrition source",
+    )
     image: Optional[str] = Field(
         None,
         min_length=1,
@@ -65,4 +78,51 @@ class EditLogRequest(BaseModel):
         max_base64_size = 13 * 1024 * 1024  # ~13MB for 10MB image
         if len(image_data.encode("utf-8")) > max_base64_size:
             raise ValueError("Image size exceeds 10MB limit")
+        return v
+
+    @field_validator("sourceUrl")
+    @classmethod
+    def validate_source_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+
+        source_url = v.strip()
+        if not source_url:
+            return None
+
+        parsed = urlparse(source_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("sourceUrl must be a valid http(s) URL")
+
+        return source_url
+
+
+class NutritionistChatRequest(BaseModel):
+    """Request model for the AI nutritionist chat endpoint"""
+
+    messages: list[ChatMessage] = Field(
+        ...,
+        min_length=1,
+        max_length=30,
+        description="Recent chat messages in chronological order",
+    )
+    todayTotals: Optional[NutritionTotals] = Field(
+        None,
+        description="Current selected day's nutrition totals",
+    )
+    goals: NutritionGoals = Field(
+        default_factory=NutritionGoals,
+        description="Optional user goals; unset values may be '-'",
+    )
+    recentMeals: list[FoodLogContextEntry] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Recent logged meals to ground nutrition advice",
+    )
+
+    @field_validator("messages")
+    @classmethod
+    def validate_chat_has_user_message(cls, v: list[ChatMessage]) -> list[ChatMessage]:
+        if not any(message.role == "user" and message.content.strip() for message in v):
+            raise ValueError("At least one user message is required")
         return v

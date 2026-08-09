@@ -35,11 +35,17 @@ SHARED_OUTPUT_SCHEMA = (
     '"analysis": string, "logName": string, '
     '"ingredients": [{"id": string, "name": string, "quantity": string, '
     '"carbs": number, "fats": number, "proteins": number, "calories": number, '
+    '"evidence"?: "visible" | "user_text" | "inferred", '
     '"sources"?: string[], "unit"?: string, "preparation"?: string, "note"?: string}], '
     '"mealNotes"?: string, "confidence": number, "foodCategory": string, '
     '"productImageUrl"?: string }\n\n'
     "Field rules:\n"
     "- `ingredients` MUST include one item per identified ingredient/component.\n"
+    "- For image-based analysis, only list ingredients that are clearly visible or explicitly named by the user.\n"
+    "- Set each ingredient's `evidence`: `visible` for ingredients clearly seen in the image, `user_text` for ingredients explicitly named by the user, and `inferred` only for text-only quantity/preparation assumptions.\n"
+    "- For image-based analysis, NEVER return ingredients with `evidence: \"inferred\"`; unsupported inferred ingredients must be omitted.\n"
+    "- Do NOT add common-but-unseen ingredients because they are typical for the dish. For example, never add banana, granola, nuts, syrup, honey, cream, sauces, oils, or toppings unless they are visibly present or the user text says they are present.\n"
+    "- If an ingredient might be hidden or ambiguous, omit it or mention uncertainty in `analysis`; do not include it as an ingredient line.\n"
     "- Every ingredient MUST include non-empty `name` and `quantity`.\n"
     "- Every ingredient MUST include numeric `carbs`, `fats`, and `proteins` in grams (>= 0).\n"
     "- Every ingredient MUST include numeric `calories` (kcal, >= 0).\n"
@@ -128,7 +134,7 @@ def build_packaged_product_prompt(
         "11. Prefer official/manufacturer or trusted retailer/product sources. Do not guess values when source data is missing.\n"
         "12. Do not invent URLs, page slugs, product IDs, or citations. Leave each ingredient `sources` array empty; verified citations are attached by the server.\n"
         "13. If source data is missing, say the value is an estimate in `analysis` and set confidence below 0.7.\n\n"
-        "14. If the user did not provide a photo and an official/trusted product page exposes a direct product image URL, include it as `productImageUrl`. "
+        "14. If an official/trusted product page exposes a direct product image URL, include it as `productImageUrl`. "
         "Use only real https image URLs from official/manufacturer or trusted retailer pages. Leave it empty if unsure.\n\n"
         "IMPORTANT: Your response must be ONLY the raw JSON object, no markdown, "
         "no code fences, no explanation — just the JSON.\n\n"
@@ -166,6 +172,8 @@ def build_complex_meal_prompt(description: Optional[str] = None) -> str:
         "the final JSON:\n\n"
         "1. **List every visible component/ingredient** — scan the entire plate or "
         "   container.\n"
+        "   Only include what can be seen. Do not infer typical add-ons from the dish name or context.\n"
+        "   In yogurt/oatmeal/bowl-style foods, do not add banana, granola, nuts, seeds, honey, or syrup unless they are actually visible or named by the user.\n"
         "2. **Estimate each portion size** — use the plate, bowl, utensils, or "
         "   hands as a size reference. Express in grams or common units.\n"
         "3. **Determine macros per component** — consider the preparation method "
@@ -219,6 +227,33 @@ def build_text_only_prompt(description: Optional[str] = None) -> str:
     return prompt
 
 
+def build_grounded_nutrition_prompt(
+    grounded_ingredients_json: str,
+    category: str,
+    description: Optional[str] = None,
+) -> str:
+    prompt = (
+        "You are an expert nutritionist estimating nutrition from a grounded visible-ingredient list. "
+        "Another vision model has already inspected the image. You do NOT have access to the image, "
+        "and you must not invent ingredients beyond the provided grounded list or explicit user text.\n\n"
+    )
+    prompt += SHARED_OUTPUT_SCHEMA
+    prompt += (
+        "Grounded visible ingredients from the vision pass:\n"
+        f"{grounded_ingredients_json}\n\n"
+        "Rules:\n"
+        "- Return exactly one ingredient entry for each grounded visible ingredient unless the user text clearly merges or renames an ambiguous item.\n"
+        "- Preserve the exact `id` from each grounded visible ingredient in the returned ingredient entry.\n"
+        "- You may rename an ambiguous visible item only when user text explicitly clarifies it. Example: if the vision pass says 'white curd-like dairy' and the user text says 'curd', use 'curd'.\n"
+        "- Do not add banana, granola, nuts, seeds, honey, syrup, sauces, oils, or toppings unless they appear in the grounded visible list or user text.\n"
+        "- Estimate reasonable quantities/macros for each grounded item. Keep uncertain visual identities honest in `analysis` and lower `confidence`.\n"
+        "- Set `evidence` to `visible` for items from the grounded list and `user_text` only when the user text explicitly supplies the item.\n"
+        f"- Set `foodCategory` to `{category}`.\n\n"
+    )
+    prompt += _desc_section(description)
+    return prompt
+
+
 def get_analysis_prompt(
     category: str,
     description: Optional[str] = None,
@@ -250,6 +285,7 @@ def build_edit_log_prompt(
     ingredients_json: str,
     correction: str,
     has_image: bool = False,
+    source_url: Optional[str] = None,
 ) -> str:
     prompt = (
         "You are an expert nutritionist. The user has an existing meal log and wants "
@@ -271,6 +307,14 @@ def build_edit_log_prompt(
         f"Current ingredients:\n```json\n{ingredients_json}\n```\n\n"
         f"User's correction: {correction}\n\n"
     )
+    if source_url:
+        prompt += (
+            f"Primary source URL: {source_url}\n"
+            "Use this URL as the main source of truth for recipe/product identity, serving size, "
+            "ingredients, and nutrition values. If the page conflicts with generic estimates, prefer the page. "
+            "Use other sources only to fill gaps or verify missing nutrition data, and say what remains uncertain "
+            "in `analysis`.\n\n"
+        )
     if has_image:
         prompt += (
             "An image is attached. Use it to verify missing visible items before updating ingredients.\n\n"

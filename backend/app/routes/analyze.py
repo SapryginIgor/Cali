@@ -13,9 +13,9 @@ from fastapi import APIRouter, Depends, Request
 from app.exceptions import AppError
 from app.middleware.auth import require_active_subscription
 from app.middleware.rate_limiter import limiter, RATE_LIMIT_STR
-from app.models.requests import AnalyzeFoodRequest, EditLogRequest
-from app.models.responses import AnalyzeFoodResponse, AsyncLogResponse
-from app.services.openai import analyze_food_image, edit_log
+from app.models.requests import AnalyzeFoodRequest, EditLogRequest, NutritionistChatRequest
+from app.models.responses import AnalyzeFoodResponse, AsyncLogResponse, NutritionistChatResponse
+from app.services.openai import analyze_food_image, edit_log, nutritionist_chat
 from app.services.s3 import is_s3_configured, upload_image, get_presigned_url
 from app.utils.image import upload_file_to_base64, validate_base64_image_format
 
@@ -150,8 +150,31 @@ async def edit_log_endpoint(
         edit_request.ingredients,
         edit_request.correction,
         edit_request.image,
+        edit_request.sourceUrl,
     )
     return AnalyzeFoodResponse(**result.model_dump())
+
+
+@router.post("/api/nutritionist-chat", response_model=NutritionistChatResponse)
+@limiter.limit(RATE_LIMIT_STR)
+async def nutritionist_chat_endpoint(
+    request: Request,
+    _user_id: Annotated[str, Depends(require_active_subscription)],
+) -> NutritionistChatResponse:
+    """Reply to the user's AI nutritionist chat."""
+    body = await request.json()
+    try:
+        chat_request = NutritionistChatRequest(**body)
+    except Exception as exc:
+        raise AppError(400, f"Validation failed: {exc}")
+
+    result = await nutritionist_chat(
+        chat_request.messages,
+        chat_request.todayTotals,
+        chat_request.recentMeals,
+        chat_request.goals,
+    )
+    return NutritionistChatResponse(**result.model_dump())
 
 
 @router.post("/api/logs", response_model=AsyncLogResponse)

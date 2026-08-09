@@ -62,6 +62,12 @@ export const normalizeIngredientList = (
                   (typeof ingredient.fats === "number" ? ingredient.fats : 0) * 9) *
                   10
               ) / 10,
+        evidence:
+          ingredient.evidence === "visible" ||
+          ingredient.evidence === "user_text" ||
+          ingredient.evidence === "inferred"
+            ? ingredient.evidence
+            : undefined,
         sources:
           Array.isArray(ingredient.sources) && ingredient.sources.length > 0
             ? ingredient.sources.filter(
