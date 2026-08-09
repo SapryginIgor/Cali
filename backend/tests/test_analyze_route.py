@@ -15,7 +15,8 @@ os.environ.setdefault("OPENAI_API_KEY", "test-key")
 from app.exceptions import AppError
 from app.main import app
 from app.middleware.auth import require_active_subscription
-from app.models.api import IngredientItem, NutritionResult, NutritionistChatResult
+from app.models.api import ChatMessage, IngredientItem, NutritionResult, NutritionistChatResult
+from app.services.openai import nutritionist_chat
 
 
 PNG_1X1_BASE64 = (
@@ -161,6 +162,44 @@ def test_nutritionist_chat_request_path(client: TestClient, monkeypatch: pytest.
 
     assert response.status_code == 200
     assert response.json()["message"] == "Add a protein anchor to your next meal."
+
+
+def test_nutritionist_chat_prompt_gathers_personalization_context(monkeypatch: pytest.MonkeyPatch):
+    captured: dict = {}
+
+    class FakeResponses:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+
+            class FakeResponse:
+                output_text = "What is your current weight and training schedule?"
+
+            return FakeResponse()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    monkeypatch.setattr("app.services.openai.get_openai_client", lambda: FakeClient())
+
+    import asyncio
+
+    asyncio.run(
+        nutritionist_chat(
+            messages=[
+                ChatMessage(
+                    role="user",
+                    content="I want to lower body fat and gain muscle",
+                )
+            ],
+        )
+    )
+
+    instructions = captured["instructions"].lower()
+    assert "current weight" in instructions
+    assert "height" in instructions
+    assert "training/activity" in instructions
+    assert "at most two focused follow-up questions" in instructions
+    assert "do not present precise calorie or macro targets" in instructions
 
 
 def test_upstream_error_handling(client: TestClient, monkeypatch: pytest.MonkeyPatch):
