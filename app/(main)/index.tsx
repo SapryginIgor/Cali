@@ -42,6 +42,7 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import Markdown from "react-native-markdown-display";
 import { z } from "zod";
 import TrialBanner from "@/components/TrialBanner";
 import Colors from "@/constants/colors";
@@ -1361,14 +1362,13 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                         isUserMessage ? styles.chatBubbleUser : styles.chatBubbleAssistant,
                       ]}
                     >
-                      <Text
-                        style={[
-                          styles.chatBubbleText,
-                          isUserMessage && styles.chatBubbleTextUser,
-                        ]}
-                      >
-                        {message.content}
-                      </Text>
+                      {isUserMessage ? (
+                        <Text style={[styles.chatBubbleText, styles.chatBubbleTextUser]}>
+                          {message.content}
+                        </Text>
+                      ) : (
+                        <Markdown style={markdownStyles}>{message.content}</Markdown>
+                      )}
                     </View>
                   </View>
                 );
@@ -1774,6 +1774,37 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     </View>
   );
 }
+
+const markdownStyles = StyleSheet.create({
+  body: {
+    fontSize: 15,
+    lineHeight: 21,
+    color: Colors.light.text,
+  },
+  text: {
+    fontSize: 15,
+    lineHeight: 21,
+    color: Colors.light.text,
+  },
+  strong: {
+    fontWeight: "800" as const,
+  },
+  paragraph: {
+    marginTop: 0,
+    marginBottom: 8,
+  },
+  bullet_list: {
+    marginTop: 0,
+    marginBottom: 8,
+  },
+  ordered_list: {
+    marginTop: 0,
+    marginBottom: 8,
+  },
+  list_item: {
+    marginBottom: 2,
+  },
+});
 
 const styles = StyleSheet.create({
   container: {
