@@ -115,6 +115,44 @@ NUTRITION_RESULT_JSON_SCHEMA: dict[str, Any] = {
     ],
 }
 
+NUTRITION_GOALS_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "goal": {"type": "string"},
+        "targetCalories": {"type": "string"},
+        "targetProtein": {"type": "string"},
+        "dietaryPreference": {"type": "string"},
+        "allergies": {"type": "string"},
+        "activity": {"type": "string"},
+        "notes": {"type": "string"},
+    },
+    "required": [
+        "goal",
+        "targetCalories",
+        "targetProtein",
+        "dietaryPreference",
+        "allergies",
+        "activity",
+        "notes",
+    ],
+}
+
+NUTRITIONIST_CHAT_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "message": {"type": "string"},
+        "goalUpdates": {
+            "anyOf": [
+                NUTRITION_GOALS_JSON_SCHEMA,
+                {"type": "null"},
+            ]
+        },
+    },
+    "required": ["message", "goalUpdates"],
+}
+
 CLASSIFICATION_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -1574,7 +1612,12 @@ async def nutritionist_chat(
         "8. If the user mentions a medical condition, pregnancy, eating disorder, or medication, "
         "recommend working with a qualified clinician.\n"
         "9. Prefer behavioral and meal-planning guidance over exact macro prescriptions unless "
-        "the user has shared a clear goal."
+        "the user has shared a clear goal.\n"
+        "10. Return JSON with `message` and `goalUpdates`. `message` is the chat reply. "
+        "`goalUpdates` is null unless you are confident the user stated or accepted a concrete "
+        "goal/target/preference that should update the app's goal fields. When updating goals, "
+        "return the complete goal object and preserve unchanged fields exactly from the current "
+        "context. Use concise strings like `150 g/day` or `1800 kcal/day`."
     )
 
     input_messages: list[dict[str, str]] = [
@@ -1598,18 +1641,31 @@ async def nutritionist_chat(
             "instructions": instructions,
             "input": input_messages,
             "max_output_tokens": 700,
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "nutritionist_chat",
+                    "schema": NUTRITIONIST_CHAT_JSON_SCHEMA,
+                    "strict": True,
+                }
+            },
         }
         if not NUTRITIONIST_CHAT_MODEL.startswith("gpt-4.1"):
             params["reasoning"] = {"effort": NUTRITIONIST_CHAT_REASONING_EFFORT}
-            params["text"] = {"verbosity": "low"}
+            params["text"]["verbosity"] = "low"
 
         response = await client.responses.create(**params)
         elapsed_ms = round((time.monotonic() - started) * 1000)
-        message = (response.output_text or "").strip()
+        content = (response.output_text or "").strip()
         logger.info("[nutritionist_chat] Response received in %dms", elapsed_ms)
-        if not message:
+        if not content:
             raise AppError(500, "Nutritionist chat returned an empty response")
-        return NutritionistChatResult(message=message)
+        try:
+            parsed = json.loads(content)
+            return NutritionistChatResult(**parsed)
+        except Exception:
+            logger.warning("[nutritionist_chat] Failed to parse JSON response; returning raw text")
+            return NutritionistChatResult(message=content, goalUpdates=None)
     except AppError:
         raise
     except (APITimeoutError, APIError) as exc:

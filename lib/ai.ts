@@ -31,6 +31,11 @@ export interface NutritionistChatContext {
   goals?: NutritionGoals;
 }
 
+export interface NutritionistChatResult {
+  message: string;
+  goalUpdates?: NutritionGoals;
+}
+
 // Backend API configuration
 // Set EXPO_PUBLIC_BACKEND_URL environment variable to enable backend API
 // For development: http://localhost:3000
@@ -568,20 +573,28 @@ export async function generateText(_prompt: string): Promise<string> {
   return "Keep up the great work tracking your nutrition! Stay consistent with your goals and adjust portions based on your progress.";
 }
 
-function buildMockNutritionistReply(message: string, context?: NutritionistChatContext): string {
+function buildMockNutritionistReply(message: string, context?: NutritionistChatContext): NutritionistChatResult {
   const hasMeals = (context?.recentMeals?.length ?? 0) > 0;
   const totals = context?.todayTotals;
   const goal = context?.goals?.goal?.trim();
   if (goal && goal !== "-") {
-    return `Got it. I’ll keep "${goal}" in mind. Based on your logs, I’d tune advice around consistency first, then portions and protein. What usually makes this goal hardest during the day?`;
+    return {
+      message: `Got it. I’ll keep "${goal}" in mind. Based on your logs, I’d tune advice around consistency first, then portions and protein. What usually makes this goal hardest during the day?`,
+    };
   }
   if (!hasMeals) {
-    return "Tell me your main goal first: fat loss, muscle gain, energy, digestion, performance, or just eating more consistently?";
+    return {
+      message: "Tell me your main goal first: fat loss, muscle gain, energy, digestion, performance, or just eating more consistently?",
+    };
   }
   if (totals && totals.calories > 0) {
-    return `Today is at about ${Math.round(totals.calories)} kcal with ${Math.round(totals.protein)}g protein. Based on that, I can help tune your next meals once I know your goal and typical training schedule.`;
+    return {
+      message: `Today is at about ${Math.round(totals.calories)} kcal with ${Math.round(totals.protein)}g protein. Based on that, I can help tune your next meals once I know your goal and typical training schedule.`,
+    };
   }
-  return `Got it. For "${message.trim()}", I’d first connect this to your goal, meal timing, and appetite pattern. What are you optimizing for right now?`;
+  return {
+    message: `Got it. For "${message.trim()}", I’d first connect this to your goal, meal timing, and appetite pattern. What are you optimizing for right now?`,
+  };
 }
 
 function compactMealForChat(entry: FoodEntry) {
@@ -597,7 +610,7 @@ function compactMealForChat(entry: FoodEntry) {
 export async function chatWithNutritionist(
   messages: NutritionistChatMessage[],
   context?: NutritionistChatContext
-): Promise<string> {
+): Promise<NutritionistChatResult> {
   const lastUserMessage = [...messages].reverse().find((message) => message.role === "user");
 
   if (process.env.EXPO_PUBLIC_E2E === "1") {
@@ -658,5 +671,11 @@ export async function chatWithNutritionist(
   if (typeof data.message !== "string" || data.message.trim().length === 0) {
     throw new Error("Invalid response format from backend");
   }
-  return data.message.trim();
+  return {
+    message: data.message.trim(),
+    goalUpdates:
+      data.goalUpdates && typeof data.goalUpdates === "object"
+        ? data.goalUpdates
+        : undefined,
+  };
 }

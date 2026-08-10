@@ -937,7 +937,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     setIsChatLoading(true);
 
     try {
-      const reply = await chatWithNutritionist(
+      const result = await chatWithNutritionist(
         nextMessages.map((message) => ({
           role: message.role,
           content: message.content,
@@ -948,12 +948,15 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
           goals: normalizeGoals(nutritionGoals),
         }
       );
+      if (result.goalUpdates) {
+        setNutritionGoals(normalizeGoals(result.goalUpdates));
+      }
       setChatMessages((prev) => [
         ...prev,
         {
           id: `assistant-${Date.now()}`,
           role: "assistant",
-          content: reply,
+          content: result.message,
           timestamp: Date.now(),
         },
       ]);

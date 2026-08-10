@@ -140,3 +140,7 @@ class NutritionistChatResult(BaseModel):
     """AI nutritionist chat response."""
 
     message: str = Field(..., min_length=1)
+    goalUpdates: Optional[NutritionGoals] = Field(
+        None,
+        description="Optional goal field updates suggested by the coach",
+    )

@@ -119,7 +119,10 @@ def test_nutritionist_chat_request_path(client: TestClient, monkeypatch: pytest.
         assert recent_meals[0].description == "Chicken rice"
         assert goals.goal == "Build muscle"
         assert goals.allergies == "-"
-        return NutritionistChatResult(message="Add a protein anchor to your next meal.")
+        return NutritionistChatResult(
+            message="Add a protein anchor to your next meal.",
+            goalUpdates=goals,
+        )
 
     monkeypatch.setattr("app.routes.analyze.nutritionist_chat", fake_nutritionist_chat)
 
@@ -163,6 +166,7 @@ def test_nutritionist_chat_request_path(client: TestClient, monkeypatch: pytest.
 
     assert response.status_code == 200
     assert response.json()["message"] == "Add a protein anchor to your next meal."
+    assert response.json()["goalUpdates"]["goal"] == "Build muscle"
 
 
 def test_nutritionist_chat_prompt_gathers_personalization_context(monkeypatch: pytest.MonkeyPatch):
@@ -173,7 +177,7 @@ def test_nutritionist_chat_prompt_gathers_personalization_context(monkeypatch: p
             captured.update(kwargs)
 
             class FakeResponse:
-                output_text = "What is your current weight and training schedule?"
+                output_text = '{"message":"What is your current weight and training schedule?","goalUpdates":null}'
 
             return FakeResponse()
 
@@ -201,6 +205,7 @@ def test_nutritionist_chat_prompt_gathers_personalization_context(monkeypatch: p
     assert "training/activity" in instructions
     assert "at most two focused follow-up questions" in instructions
     assert "do not present precise calorie or macro targets" in instructions
+    assert "`goalupdates` is null unless" in instructions
 
 
 def test_upstream_error_handling(client: TestClient, monkeypatch: pytest.MonkeyPatch):
