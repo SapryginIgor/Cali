@@ -1419,16 +1419,30 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                     >
                       {isGoalUpdateMessage ? (
                         <>
-                          <View style={styles.goalUpdateTitleRow}>
-                            <CheckCircle2 size={16} color={Colors.light.success} />
-                            <Text style={styles.goalUpdateTitle}>Goals updated</Text>
+                          <View style={styles.goalUpdateHeader}>
+                            <View style={styles.goalUpdateIcon}>
+                              <CheckCircle2 size={16} color="#FFFFFF" />
+                            </View>
+                            <View style={styles.goalUpdateHeaderText}>
+                              <Text style={styles.goalUpdateEyebrow}>Saved to your profile</Text>
+                              <Text style={styles.goalUpdateTitle}>Goals updated</Text>
+                            </View>
                           </View>
-                          {updatedGoalFields.map((field) => (
-                            <Text key={field} style={styles.goalUpdateText}>
-                              {GOAL_FIELD_LABELS[field]}:{" "}
-                              {normalizeGoalValue(message.goalUpdates?.[field])}
-                            </Text>
-                          ))}
+                          <View style={styles.goalUpdateList}>
+                            {updatedGoalFields.map((field) => (
+                              <View key={field} style={styles.goalUpdateItem}>
+                                <Text style={styles.goalUpdateItemLabel}>
+                                  {GOAL_FIELD_LABELS[field]}
+                                </Text>
+                                <Text style={styles.goalUpdateItemValue}>
+                                  {normalizeGoalValue(message.goalUpdates?.[field])}
+                                </Text>
+                              </View>
+                            ))}
+                          </View>
+                          <Text style={styles.goalUpdateCaption}>
+                            Daily Intake and future coach replies will use these targets.
+                          </Text>
                           <TouchableOpacity
                             style={styles.goalUpdateEditButton}
                             onPress={() => setGoalsModalVisible(true)}
@@ -2151,25 +2165,76 @@ const styles = StyleSheet.create({
     borderColor: Colors.light.text,
   },
   goalUpdateCard: {
-    backgroundColor: "#ECFDF5",
-    borderColor: "#A7F3D0",
+    maxWidth: "88%",
+    backgroundColor: "#F0FDF4",
+    borderColor: "#BBF7D0",
+    padding: 12,
   },
-  goalUpdateTitleRow: {
+  goalUpdateHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginBottom: 8,
+    gap: 10,
+    marginBottom: 12,
+  },
+  goalUpdateIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderCurve: "continuous" as const,
+    backgroundColor: Colors.light.success,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  goalUpdateHeaderText: {
+    flex: 1,
+    gap: 1,
+  },
+  goalUpdateEyebrow: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800" as const,
+    letterSpacing: 0,
+    textTransform: "uppercase" as const,
+    color: "#059669",
   },
   goalUpdateTitle: {
-    fontSize: 14,
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "800" as const,
+    color: Colors.light.text,
+  },
+  goalUpdateList: {
+    gap: 8,
+  },
+  goalUpdateItem: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#D1FAE5",
+    borderRadius: 12,
+    borderCurve: "continuous" as const,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    gap: 3,
+  },
+  goalUpdateItemLabel: {
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: "800" as const,
     color: "#047857",
+    textTransform: "uppercase" as const,
   },
-  goalUpdateText: {
+  goalUpdateItemValue: {
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: "700" as const,
+    fontWeight: "800" as const,
     color: Colors.light.text,
+  },
+  goalUpdateCaption: {
+    marginTop: 10,
+    fontSize: 12,
+    lineHeight: 17,
+    color: Colors.light.secondaryText,
+    fontWeight: "600" as const,
   },
   goalUpdateEditButton: {
     alignSelf: "flex-start",
