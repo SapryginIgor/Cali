@@ -56,3 +56,17 @@ def test_supabase_storage_still_configures_legacy_fallback(monkeypatch):
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role")
 
     assert s3.is_s3_configured() is True
+
+
+def test_storage_status_reports_missing_s3_keys_without_secret_values(monkeypatch):
+    _clear_storage_env(monkeypatch)
+    monkeypatch.setenv("S3_BUCKET", "dokploy-data")
+    monkeypatch.setenv("S3_PUBLIC_BASE_URL", "https://dokploy-data.sfo3.digitaloceanspaces.com")
+
+    status = s3.get_storage_status()
+
+    assert status["configured"] is False
+    assert status["provider"] == "none"
+    assert status["s3"]["configured"] is False
+    assert status["s3"]["missing"] == ["S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"]
+    assert "dokploy-data" in status["s3"]["publicBaseUrl"]

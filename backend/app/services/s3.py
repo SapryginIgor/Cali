@@ -49,6 +49,39 @@ def _s3_public_base_url() -> str:
     return _env_first("S3_PUBLIC_BASE_URL", "DO_SPACES_PUBLIC_URL", "AWS_S3_PUBLIC_BASE_URL").rstrip("/")
 
 
+def get_storage_status() -> dict[str, object]:
+    """Return non-secret image storage diagnostics for deployment checks."""
+    s3_required = {
+        "S3_BUCKET": _s3_bucket_name(),
+        "S3_ACCESS_KEY_ID": _env_first("S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID", "DO_SPACES_KEY"),
+        "S3_SECRET_ACCESS_KEY": _env_first("S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY", "DO_SPACES_SECRET"),
+    }
+    s3_optional = {
+        "S3_REGION": _env_first("S3_REGION", "AWS_REGION", "AWS_DEFAULT_REGION", "DO_SPACES_REGION"),
+        "S3_ENDPOINT_URL": _env_first("S3_ENDPOINT_URL", "AWS_S3_ENDPOINT_URL", "DO_SPACES_ENDPOINT"),
+        "S3_PUBLIC_BASE_URL": _s3_public_base_url(),
+    }
+    missing_s3 = [name for name, value in s3_required.items() if not value]
+    supabase_configured = bool(os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+    provider = "s3" if not missing_s3 else "supabase" if supabase_configured else "none"
+
+    return {
+        "configured": provider != "none",
+        "provider": provider,
+        "s3": {
+            "configured": not missing_s3,
+            "missing": missing_s3,
+            "hasRegion": bool(s3_optional["S3_REGION"]),
+            "hasEndpointUrl": bool(s3_optional["S3_ENDPOINT_URL"]),
+            "hasPublicBaseUrl": bool(s3_optional["S3_PUBLIC_BASE_URL"]),
+            "publicBaseUrl": s3_optional["S3_PUBLIC_BASE_URL"] or None,
+        },
+        "supabase": {
+            "configured": supabase_configured,
+        },
+    }
+
+
 def _is_s3_compatible_configured() -> bool:
     return bool(
         _s3_bucket_name()

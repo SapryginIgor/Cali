@@ -16,6 +16,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 from app.routes.analyze import router as analyze_router
 from app.routes.images import router as images_router
+from app.services.s3 import get_storage_status
 from app.middleware.error_handler import (
     app_error_handler,
     validation_error_handler,
@@ -112,3 +113,9 @@ async def health():
     Health check endpoint
     """
     return {"status": "ok"}
+
+
+@app.get("/health/storage")
+async def storage_health():
+    """Non-secret image storage configuration diagnostics."""
+    return get_storage_status()
