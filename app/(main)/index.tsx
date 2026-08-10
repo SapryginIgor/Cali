@@ -107,6 +107,7 @@ type ChatMessage = {
   kind?: "message" | "goal_update";
   goalUpdates?: NutritionGoals;
   changedGoalFields?: NutritionGoalField[];
+  goalUpdateStatus?: "updated" | "confirmed";
 };
 
 const INITIAL_CHAT_MESSAGES: ChatMessage[] = [
@@ -171,6 +172,23 @@ const getChangedGoalFields = (
   GOAL_FIELDS.map((field) => field.key).filter(
     (key) => normalizeGoalValue(previousGoals[key]) !== normalizeGoalValue(nextGoals[key])
   );
+
+const getFilledGoalFields = (goals: NutritionGoals): NutritionGoalField[] =>
+  GOAL_FIELDS.map((field) => field.key).filter((key) => normalizeGoalValue(goals[key]) !== "-");
+
+const isGoalUpdateConfirmation = (message: string) => {
+  const normalized = message.trim().toLowerCase();
+  return (
+    normalized.startsWith("updated") ||
+    normalized.startsWith("your targets are updated") ||
+    normalized.startsWith("your goals are updated") ||
+    normalized.startsWith("i updated") ||
+    normalized.startsWith("i’ve updated") ||
+    normalized.startsWith("i'd update") ||
+    normalized.includes("targets are updated") ||
+    normalized.includes("goals are updated")
+  );
+};
 
 const parseGoalNumber = (value: string) => {
   const normalized = normalizeGoalValue(value);
@@ -976,6 +994,15 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
       const currentGoals = normalizeGoals(nutritionGoals);
       const nextGoals = result.goalUpdates ? normalizeGoals(result.goalUpdates) : null;
       const changedGoalFields = nextGoals ? getChangedGoalFields(currentGoals, nextGoals) : [];
+      const visibleGoalFields = nextGoals
+        ? changedGoalFields.length > 0
+          ? changedGoalFields
+          : getFilledGoalFields(nextGoals)
+        : [];
+      const shouldShowGoalUpdateCard = Boolean(nextGoals && visibleGoalFields.length > 0);
+      const shouldShowAssistantMessage =
+        result.message.trim().length > 0 &&
+        !(shouldShowGoalUpdateCard && isGoalUpdateConfirmation(result.message));
 
       if (nextGoals && changedGoalFields.length > 0) {
         setNutritionGoals(nextGoals);
@@ -984,22 +1011,27 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
       const replyTimestamp = Date.now();
       setChatMessages((prev) => [
         ...prev,
-        {
-          id: `assistant-${replyTimestamp}`,
-          role: "assistant",
-          content: result.message,
-          timestamp: replyTimestamp,
-        },
-        ...(nextGoals && changedGoalFields.length > 0
+        ...(shouldShowAssistantMessage
+          ? [
+              {
+                id: `assistant-${replyTimestamp}`,
+                role: "assistant" as const,
+                content: result.message,
+                timestamp: replyTimestamp,
+              },
+            ]
+          : []),
+        ...(shouldShowGoalUpdateCard && nextGoals
           ? [
               {
                 id: `goal-update-${replyTimestamp}`,
                 role: "assistant" as const,
                 kind: "goal_update" as const,
-                content: "Goals updated",
+                content: changedGoalFields.length > 0 ? "Goals updated" : "Goals confirmed",
                 timestamp: replyTimestamp,
                 goalUpdates: nextGoals,
-                changedGoalFields,
+                changedGoalFields: visibleGoalFields,
+                goalUpdateStatus: changedGoalFields.length > 0 ? "updated" as const : "confirmed" as const,
               },
             ]
           : []),
@@ -1395,6 +1427,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                 const isUserMessage = message.role === "user";
                 const isGoalUpdateMessage =
                   message.kind === "goal_update" && message.goalUpdates;
+                const isConfirmedGoalUpdate = message.goalUpdateStatus === "confirmed";
                 const updatedGoalFields =
                   message.changedGoalFields && message.changedGoalFields.length > 0
                     ? message.changedGoalFields
@@ -1424,8 +1457,12 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                               <CheckCircle2 size={16} color="#FFFFFF" />
                             </View>
                             <View style={styles.goalUpdateHeaderText}>
-                              <Text style={styles.goalUpdateEyebrow}>Saved to your profile</Text>
-                              <Text style={styles.goalUpdateTitle}>Goals updated</Text>
+                              <Text style={styles.goalUpdateEyebrow}>
+                                {isConfirmedGoalUpdate ? "Already saved" : "Saved to your profile"}
+                              </Text>
+                              <Text style={styles.goalUpdateTitle}>
+                                {isConfirmedGoalUpdate ? "Goals confirmed" : "Goals updated"}
+                              </Text>
                             </View>
                           </View>
                           <View style={styles.goalUpdateList}>
@@ -1441,7 +1478,9 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                             ))}
                           </View>
                           <Text style={styles.goalUpdateCaption}>
-                            Daily Intake and future coach replies will use these targets.
+                            {isConfirmedGoalUpdate
+                              ? "Daily Intake and future coach replies are already using these targets."
+                              : "Daily Intake and future coach replies will use these targets."}
                           </Text>
                           <TouchableOpacity
                             style={styles.goalUpdateEditButton}

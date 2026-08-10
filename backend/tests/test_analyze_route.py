@@ -206,6 +206,8 @@ def test_nutritionist_chat_prompt_gathers_personalization_context(monkeypatch: p
     assert "at most two focused follow-up questions" in instructions
     assert "do not present precise calorie or macro targets" in instructions
     assert "`goalupdates` is null unless" in instructions
+    assert "must return `goalupdates`" in instructions
+    assert "do not say goals or targets are updated" in instructions
 
 
 def test_upstream_error_handling(client: TestClient, monkeypatch: pytest.MonkeyPatch):

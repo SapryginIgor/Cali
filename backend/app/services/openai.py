@@ -1617,7 +1617,10 @@ async def nutritionist_chat(
         "`goalUpdates` is null unless you are confident the user stated or accepted a concrete "
         "goal/target/preference that should update the app's goal fields. When updating goals, "
         "return the complete goal object and preserve unchanged fields exactly from the current "
-        "context. Use concise strings like `150 g/day` or `1800 kcal/day`."
+        "context. Use concise strings like `150 g/day` or `1800 kcal/day`. If the user asks you "
+        "to update, save, set, or confirm targets and you have enough information, you must return "
+        "`goalUpdates`; do not say goals or targets are updated in `message` while `goalUpdates` "
+        "is null."
     )
 
     input_messages: list[dict[str, str]] = [
