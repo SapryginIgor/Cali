@@ -13,6 +13,7 @@ import {
   Plus,
   RefreshCw,
   Send,
+  SlidersHorizontal,
   Sparkles,
   Trash2,
   User,
@@ -373,6 +374,7 @@ export default function TodayScreen() {
   const [hasLoadedChat, setHasLoadedChat] = useState(false);
   const [nutritionGoals, setNutritionGoals] = useState<NutritionGoals>(DEFAULT_NUTRITION_GOALS);
   const [hasLoadedGoals, setHasLoadedGoals] = useState(false);
+  const [goalsModalVisible, setGoalsModalVisible] = useState(false);
   const hasInputContent = inputText.trim().length > 0;
   const isComposerCompact = isInputFocused || hasInputContent || selectedImage !== null;
 
@@ -1320,7 +1322,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                   <Text style={styles.coachContextTitle}>Nutrition Coach</Text>
                 </View>
                 <Text style={styles.coachContextText}>
-                  Goals are optional. Leave any field as - and keep using the app.
+                  Goals are optional and stay synced with Daily Intake.
                 </Text>
                 <View style={styles.coachDailySyncRow}>
                   <Text style={styles.coachDailySyncText}>
@@ -1329,24 +1331,22 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                   <Text style={styles.coachDailySyncText}>
                     Protein: {Math.round(totals.protein)}{proteinGoal ? ` / ${Math.round(proteinGoal)}` : ""}g
                   </Text>
+                  {normalizeGoalValue(nutritionGoals.goal) !== "-" && (
+                    <Text style={styles.coachDailySyncText}>
+                      {normalizeGoalValue(nutritionGoals.goal)}
+                    </Text>
+                  )}
                 </View>
-                <View style={styles.goalFields}>
-                  {GOAL_FIELDS.map((field) => (
-                    <View key={field.key} style={styles.goalFieldRow}>
-                      <Text style={styles.goalFieldLabel}>{field.label}</Text>
-                      <TextInput
-                        style={styles.goalFieldInput}
-                        value={nutritionGoals[field.key]}
-                        onChangeText={(value) => handleGoalChange(field.key, value)}
-                        onBlur={() => handleGoalBlur(field.key)}
-                        placeholder={field.placeholder}
-                        placeholderTextColor={Colors.light.tertiaryText}
-                        maxLength={field.key === "notes" ? 500 : 200}
-                        multiline={field.key === "notes"}
-                      />
-                    </View>
-                  ))}
-                </View>
+                <TouchableOpacity
+                  style={styles.coachGoalsButton}
+                  onPress={() => setGoalsModalVisible(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit nutrition goals"
+                  activeOpacity={0.85}
+                >
+                  <SlidersHorizontal size={16} color={Colors.light.tint} />
+                  <Text style={styles.coachGoalsButtonText}>Goals</Text>
+                </TouchableOpacity>
               </View>
 
               {chatMessages.map((message) => {
@@ -1389,6 +1389,71 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
           </View>
         )}
       </SafeAreaView>
+
+      <Modal
+        visible={goalsModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setGoalsModalVisible(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <LinearGradient
+            colors={["#FFFFFF", "#FFF7ED"]}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setGoalsModalVisible(false)}>
+              <Text style={styles.modalCancel}>Close</Text>
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Goals</Text>
+            <TouchableOpacity
+              onPress={() => {
+                setNutritionGoals((prev) => normalizeGoals(prev));
+                setGoalsModalVisible(false);
+              }}
+            >
+              <Text style={styles.modalDone}>Done</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={styles.goalsModalContent}
+            contentContainerStyle={styles.goalsModalContentInner}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.goalsModalSummary}>
+              <Text style={styles.goalsModalSummaryTitle}>Daily Intake Targets</Text>
+              <View style={styles.coachDailySyncRow}>
+                <Text style={styles.coachDailySyncText}>
+                  Calories: {calorieGoal ? `${Math.round(calorieGoal)} cal` : "-"}
+                </Text>
+                <Text style={styles.coachDailySyncText}>
+                  Protein: {proteinGoal ? `${Math.round(proteinGoal)}g` : "-"}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.goalFields}>
+              {GOAL_FIELDS.map((field) => (
+                <View key={field.key} style={styles.goalFieldRow}>
+                  <Text style={styles.goalFieldLabel}>{field.label}</Text>
+                  <TextInput
+                    style={styles.goalFieldInput}
+                    value={nutritionGoals[field.key]}
+                    onChangeText={(value) => handleGoalChange(field.key, value)}
+                    onBlur={() => handleGoalBlur(field.key)}
+                    placeholder={field.placeholder}
+                    placeholderTextColor={Colors.light.tertiaryText}
+                    maxLength={field.key === "notes" ? 500 : 200}
+                    multiline={field.key === "notes"}
+                  />
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
 
       <Modal
         visible={editModalVisible}
@@ -1921,6 +1986,45 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700" as const,
     color: Colors.light.text,
+  },
+  coachGoalsButton: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 12,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  coachGoalsButtonText: {
+    fontSize: 14,
+    fontWeight: "800" as const,
+    color: Colors.light.tint,
+  },
+  goalsModalContent: {
+    flex: 1,
+  },
+  goalsModalContentInner: {
+    padding: 20,
+    paddingBottom: 32,
+  },
+  goalsModalSummary: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+  },
+  goalsModalSummaryTitle: {
+    fontSize: 16,
+    fontWeight: "800" as const,
+    color: Colors.light.text,
+    marginBottom: 10,
   },
   goalFields: {
     marginTop: 12,
