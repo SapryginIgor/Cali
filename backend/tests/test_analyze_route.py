@@ -47,8 +47,9 @@ def build_result() -> NutritionResult:
 
 
 @pytest.fixture
-def client() -> TestClient:
+def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     app.dependency_overrides[require_active_subscription] = lambda: "test-user-id"
+    monkeypatch.setattr("app.routes.analyze.is_s3_configured", lambda: False)
     try:
         yield TestClient(app)
     finally:

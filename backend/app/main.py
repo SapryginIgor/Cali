@@ -5,9 +5,10 @@ FastAPI application entry point
 import os
 import logging
 from contextlib import asynccontextmanager
-from dotenv import load_dotenv
 
-load_dotenv()
+from app.env import get_env_file_status, load_backend_env
+
+LOADED_ENV_FILES = load_backend_env()
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -118,4 +119,10 @@ async def health():
 @app.get("/health/storage")
 async def storage_health():
     """Non-secret image storage configuration diagnostics."""
-    return get_storage_status()
+    return {
+        **get_storage_status(),
+        "envFiles": {
+            **get_env_file_status(),
+            "loaded": LOADED_ENV_FILES,
+        },
+    }
