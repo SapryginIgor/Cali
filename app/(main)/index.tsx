@@ -6,6 +6,7 @@ import * as ImagePicker from "expo-image-picker";
 import {
   ArrowUp,
   Camera as CameraIcon,
+  CheckCircle2,
   ImagePlus,
   Link,
   MessageCircle,
@@ -103,6 +104,9 @@ type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   timestamp: number;
+  kind?: "message" | "goal_update";
+  goalUpdates?: NutritionGoals;
+  changedGoalFields?: NutritionGoalField[];
 };
 
 const INITIAL_CHAT_MESSAGES: ChatMessage[] = [
@@ -137,6 +141,14 @@ const GOAL_FIELDS: { key: NutritionGoalField; label: string; placeholder: string
   { key: "notes", label: "Notes", placeholder: "Schedule, appetite, constraints..." },
 ];
 
+const GOAL_FIELD_LABELS = GOAL_FIELDS.reduce(
+  (labels, field) => ({
+    ...labels,
+    [field.key]: field.label,
+  }),
+  {} as Record<NutritionGoalField, string>
+);
+
 const normalizeGoalValue = (value?: string) => {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : "-";
@@ -151,6 +163,14 @@ const normalizeGoals = (goals?: Partial<NutritionGoals> | null): NutritionGoals 
   activity: normalizeGoalValue(goals?.activity),
   notes: normalizeGoalValue(goals?.notes),
 });
+
+const getChangedGoalFields = (
+  previousGoals: NutritionGoals,
+  nextGoals: NutritionGoals
+): NutritionGoalField[] =>
+  GOAL_FIELDS.map((field) => field.key).filter(
+    (key) => normalizeGoalValue(previousGoals[key]) !== normalizeGoalValue(nextGoals[key])
+  );
 
 const parseGoalNumber = (value: string) => {
   const normalized = normalizeGoalValue(value);
@@ -940,27 +960,49 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
 
     try {
       const result = await chatWithNutritionist(
-        nextMessages.map((message) => ({
-          role: message.role,
-          content: message.content,
-        })),
+        nextMessages
+          .filter((message) => message.kind !== "goal_update")
+          .map((message) => ({
+            role: message.role,
+            content: message.content,
+          })),
         {
           todayTotals: totals,
           recentMeals: recentEntriesForChat,
           goals: normalizeGoals(nutritionGoals),
         }
       );
-      if (result.goalUpdates) {
-        setNutritionGoals(normalizeGoals(result.goalUpdates));
+
+      const currentGoals = normalizeGoals(nutritionGoals);
+      const nextGoals = result.goalUpdates ? normalizeGoals(result.goalUpdates) : null;
+      const changedGoalFields = nextGoals ? getChangedGoalFields(currentGoals, nextGoals) : [];
+
+      if (nextGoals && changedGoalFields.length > 0) {
+        setNutritionGoals(nextGoals);
       }
+
+      const replyTimestamp = Date.now();
       setChatMessages((prev) => [
         ...prev,
         {
-          id: `assistant-${Date.now()}`,
+          id: `assistant-${replyTimestamp}`,
           role: "assistant",
           content: result.message,
-          timestamp: Date.now(),
+          timestamp: replyTimestamp,
         },
+        ...(nextGoals && changedGoalFields.length > 0
+          ? [
+              {
+                id: `goal-update-${replyTimestamp}`,
+                role: "assistant" as const,
+                kind: "goal_update" as const,
+                content: "Goals updated",
+                timestamp: replyTimestamp,
+                goalUpdates: nextGoals,
+                changedGoalFields,
+              },
+            ]
+          : []),
       ]);
     } catch (error) {
       setChatMessages((prev) => [
@@ -1351,6 +1393,12 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
 
               {chatMessages.map((message) => {
                 const isUserMessage = message.role === "user";
+                const isGoalUpdateMessage =
+                  message.kind === "goal_update" && message.goalUpdates;
+                const updatedGoalFields =
+                  message.changedGoalFields && message.changedGoalFields.length > 0
+                    ? message.changedGoalFields
+                    : GOAL_FIELDS.map((field) => field.key);
                 return (
                   <View
                     key={message.id}
@@ -1362,10 +1410,36 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                     <View
                       style={[
                         styles.chatBubble,
-                        isUserMessage ? styles.chatBubbleUser : styles.chatBubbleAssistant,
+                        isGoalUpdateMessage
+                          ? styles.goalUpdateCard
+                          : isUserMessage
+                            ? styles.chatBubbleUser
+                            : styles.chatBubbleAssistant,
                       ]}
                     >
-                      {isUserMessage ? (
+                      {isGoalUpdateMessage ? (
+                        <>
+                          <View style={styles.goalUpdateTitleRow}>
+                            <CheckCircle2 size={16} color={Colors.light.success} />
+                            <Text style={styles.goalUpdateTitle}>Goals updated</Text>
+                          </View>
+                          {updatedGoalFields.map((field) => (
+                            <Text key={field} style={styles.goalUpdateText}>
+                              {GOAL_FIELD_LABELS[field]}:{" "}
+                              {normalizeGoalValue(message.goalUpdates?.[field])}
+                            </Text>
+                          ))}
+                          <TouchableOpacity
+                            style={styles.goalUpdateEditButton}
+                            onPress={() => setGoalsModalVisible(true)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Edit nutrition goals"
+                            activeOpacity={0.85}
+                          >
+                            <Text style={styles.goalUpdateEditButtonText}>Edit goals</Text>
+                          </TouchableOpacity>
+                        </>
+                      ) : isUserMessage ? (
                         <Text style={[styles.chatBubbleText, styles.chatBubbleTextUser]}>
                           {message.content}
                         </Text>
@@ -2075,6 +2149,42 @@ const styles = StyleSheet.create({
   chatBubbleUser: {
     backgroundColor: Colors.light.text,
     borderColor: Colors.light.text,
+  },
+  goalUpdateCard: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#A7F3D0",
+  },
+  goalUpdateTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  goalUpdateTitle: {
+    fontSize: 14,
+    fontWeight: "800" as const,
+    color: "#047857",
+  },
+  goalUpdateText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "700" as const,
+    color: Colors.light.text,
+  },
+  goalUpdateEditButton: {
+    alignSelf: "flex-start",
+    marginTop: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  goalUpdateEditButtonText: {
+    fontSize: 13,
+    fontWeight: "800" as const,
+    color: "#047857",
   },
   chatBubbleText: {
     fontSize: 15,
