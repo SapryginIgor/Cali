@@ -38,6 +38,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   LayoutAnimation,
+  PanResponder,
   Platform,
   TouchableWithoutFeedback,
   UIManager,
@@ -61,7 +62,6 @@ import Reanimated, {
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import Markdown from "react-native-markdown-display";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { z } from "zod";
 import TrialBanner from "@/components/TrialBanner";
 import Colors from "@/constants/colors";
@@ -1052,74 +1052,39 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     };
   }, [screenWidth]);
 
-  const modeSwipeGesture = useMemo(
+  const modeSwipeResponder = useMemo(
     () =>
-      Gesture.Pan()
-        .minDistance(4)
-        .activeOffsetX([-6, 6])
-        .failOffsetY([-120, 120])
-        .onBegin(() => {
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          Math.abs(gestureState.dx) > 6 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2,
+        onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+          Math.abs(gestureState.dx) > 6 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2,
+        onPanResponderGrant: () => {
           cancelAnimation(modeDrag);
           cancelAnimation(modeTransition);
           modeTransition.set(0);
-          runOnJS(dismissKeyboard)();
-        })
-        .onUpdate((event) => {
-          const currentMode = appModeValue.get();
-          const canMoveTowardCoach = currentMode === 0 && event.translationX < 0;
-          const canMoveTowardDiary = currentMode === 1 && event.translationX > 0;
-          const edgeResistance = canMoveTowardCoach || canMoveTowardDiary ? 1 : 0.18;
-
-          modeDrag.set(getModeDragOffset(event.translationX * edgeResistance, screenWidth));
-        })
-        .onEnd((event) => {
+          dismissKeyboard();
+        },
+        onPanResponderMove: (_, gestureState) => {
+          modeDrag.set(getModeDragOffset(gestureState.dx, screenWidth));
+        },
+        onPanResponderRelease: (_, gestureState) => {
           const isIntentionalSwipe =
-            Math.abs(event.translationX) >= MODE_SWIPE_DISTANCE ||
-            Math.abs(event.velocityX) >= MODE_SWIPE_VELOCITY;
+            Math.abs(gestureState.dx) >= MODE_SWIPE_DISTANCE ||
+            Math.abs(gestureState.vx) * 1000 >= MODE_SWIPE_VELOCITY;
 
           if (!isIntentionalSwipe) {
-            settleModeDrag(0, event.velocityX);
+            settleModeDrag(0, gestureState.vx * 1000);
             return;
           }
 
-        const currentMode = appModeValue.get();
-        if (event.translationX < 0 && currentMode === 0) {
-          appModeValue.set(1);
-          modeDrag.set(withSpring(screenWidth * -0.18, {
-            velocity: event.velocityX,
-            stiffness: 280,
-            damping: 34,
-              mass: 1,
-            }, (finished) => {
-              if (finished) {
-              runOnJS(finishGestureModeSwitch)("coach", -1);
-            }
-          }));
-        } else if (event.translationX > 0 && currentMode === 1) {
-          appModeValue.set(0);
-          modeDrag.set(withSpring(screenWidth * 0.18, {
-            velocity: event.velocityX,
-            stiffness: 280,
-            damping: 34,
-              mass: 1,
-            }, (finished) => {
-              if (finished) {
-                runOnJS(finishGestureModeSwitch)("diary", 1);
-              }
-            }));
-          } else {
-            settleModeDrag(0, event.velocityX);
-          }
-        }),
-    [
-      appModeValue,
-      dismissKeyboard,
-      finishGestureModeSwitch,
-      modeDrag,
-      modeTransition,
-      screenWidth,
-      settleModeDrag,
-    ]
+          switchAppMode(appMode === "diary" ? "coach" : "diary");
+        },
+        onPanResponderTerminate: (_, gestureState) => {
+          settleModeDrag(0, gestureState.vx * 1000);
+        },
+      }),
+    [appMode, dismissKeyboard, modeDrag, modeTransition, screenWidth, settleModeDrag, switchAppMode]
   );
 
   const resetEditState = () => {
@@ -1916,14 +1881,18 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             </Reanimated.View>
             <View pointerEvents="box-none" style={styles.modeSwipeOverlay}>
               {appMode === "diary" && (
-                <GestureDetector gesture={modeSwipeGesture}>
-                  <View style={[styles.modeSwipeEdge, styles.modeSwipeEdgeLeft]} />
-                </GestureDetector>
+                <View
+                  collapsable={false}
+                  {...modeSwipeResponder.panHandlers}
+                  style={[styles.modeSwipeEdge, styles.modeSwipeEdgeLeft]}
+                />
               )}
               {appMode === "coach" && (
-                <GestureDetector gesture={modeSwipeGesture}>
-                  <View style={[styles.modeSwipeEdge, styles.modeSwipeEdgeRight]} />
-                </GestureDetector>
+                <View
+                  collapsable={false}
+                  {...modeSwipeResponder.panHandlers}
+                  style={[styles.modeSwipeEdge, styles.modeSwipeEdgeRight]}
+                />
               )}
             </View>
           </View>
@@ -2502,6 +2471,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: MODE_EDGE_WIDTH,
     zIndex: 20,
+    backgroundColor: "transparent",
   },
   modeSwipeEdgeLeft: {
     left: 0,
