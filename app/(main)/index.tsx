@@ -42,13 +42,17 @@ import {
   TouchableWithoutFeedback,
   UIManager,
   useWindowDimensions,
-  Animated,
-  Easing,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import Markdown from "react-native-markdown-display";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Reanimated, {
+  Easing as ReanimatedEasing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { z } from "zod";
 import TrialBanner from "@/components/TrialBanner";
 import Colors from "@/constants/colors";
@@ -511,7 +515,6 @@ export default function TodayScreen() {
   const [editKeyboardHeight, setEditKeyboardHeight] = useState(0);
   const [selectedDate, setSelectedDate] = useState(todayDate);
   const [appMode, setAppMode] = useState<AppMode>("diary");
-  const [modeTransitionDirection, setModeTransitionDirection] = useState(0);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT_MESSAGES);
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -546,7 +549,8 @@ export default function TodayScreen() {
   const cameraRef = useRef<CameraView>(null);
   const inputBarInputRef = useRef<TextInput>(null);
   const chatScrollRef = useRef<ScrollView>(null);
-  const modeTransition = useRef(new Animated.Value(0)).current;
+  const modeTransition = useSharedValue(0);
+  const modeTransitionDirection = useSharedValue(0);
   const [cameraFacing, setCameraFacing] = useState<"front" | "back">("back");
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 const getAnalysisMessages = useCallback((description: string, imageUri?: string) => {
@@ -968,17 +972,14 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
 
     Keyboard.dismiss();
     const direction = nextMode === "coach" ? -1 : 1;
-    setModeTransitionDirection(direction);
-    modeTransition.stopAnimation();
-    modeTransition.setValue(1);
+    modeTransitionDirection.value = direction;
+    modeTransition.value = 1;
     setAppMode(nextMode);
-    Animated.timing(modeTransition, {
-      toValue: 0,
+    modeTransition.value = withTiming(0, {
       duration: 230,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [appMode, modeTransition]);
+      easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+    });
+  }, [appMode, modeTransition, modeTransitionDirection]);
 
   const handleModeSwipe = useCallback((translationX: number, velocityX: number) => {
     const isIntentionalSwipe =
@@ -996,20 +997,17 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     }
   }, [appMode, switchAppMode]);
 
-  const modePageAnimatedStyle = useMemo(() => ({
-    opacity: modeTransition.interpolate({
-      inputRange: [0, 1],
-      outputRange: [1, 0.92],
-    }),
+  const modePageAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: 1 - modeTransition.value * 0.08,
     transform: [
       {
-        translateX: modeTransition.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, modeTransitionDirection * Math.min(screenWidth * 0.16, 64)],
-        }),
+        translateX:
+          modeTransition.value *
+          modeTransitionDirection.value *
+          Math.min(screenWidth * 0.16, 64),
       },
     ],
-  }), [modeTransition, modeTransitionDirection, screenWidth]);
+  }), [screenWidth]);
 
   const screenShortcutGesture = useMemo(() => {
     const doubleTapGesture = Gesture.Tap()
@@ -1384,7 +1382,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         )}
 
         <GestureDetector gesture={screenShortcutGesture}>
-          <Animated.View style={[styles.shortcutGestureRegion, modePageAnimatedStyle]}>
+          <Reanimated.View style={[styles.shortcutGestureRegion, modePageAnimatedStyle]}>
         {appMode === "diary" ? (
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.macrosCard}>
@@ -1824,7 +1822,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             </ScrollView>
           </View>
         )}
-          </Animated.View>
+          </Reanimated.View>
         </GestureDetector>
       </SafeAreaView>
 
