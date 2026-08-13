@@ -980,28 +980,6 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     }
   }, [selectedDate, todayDate]);
 
-  const handleShortcutDayShift = useCallback((dayOffset: number) => {
-    const nextDate = normalizeDate(selectedDate);
-    nextDate.setDate(nextDate.getDate() + dayOffset);
-
-    if (nextDate.getTime() > todayDate.getTime()) {
-      return;
-    }
-
-    const firstAllowedDate = calendarWeeks[0] ? normalizeDate(calendarWeeks[0]) : null;
-    if (firstAllowedDate && nextDate.getTime() < firstAllowedDate.getTime()) {
-      return;
-    }
-
-    Keyboard.dismiss();
-    runSoftLayoutTransition();
-    setSelectedDate(nextDate);
-  }, [calendarWeeks, selectedDate, todayDate]);
-
-  const handleShortcutDoubleTap = useCallback((tapX: number) => {
-    handleShortcutDayShift(tapX < screenWidth / 2 ? -1 : 1);
-  }, [handleShortcutDayShift, screenWidth]);
-
   const dismissKeyboard = useCallback(() => {
     Keyboard.dismiss();
   }, []);
@@ -1074,26 +1052,12 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     };
   }, [screenWidth]);
 
-  const screenDoubleTapGesture = useMemo(
-    () =>
-      Gesture.Tap()
-        .numberOfTaps(2)
-        .maxDelay(260)
-        .runOnJS(true)
-        .onEnd((event, success) => {
-          if (success) {
-            handleShortcutDoubleTap(event.x);
-          }
-        }),
-    [handleShortcutDoubleTap]
-  );
-
   const modeSwipeGesture = useMemo(
     () =>
       Gesture.Pan()
-        .minDistance(10)
-        .activeOffsetX([-14, 14])
-        .failOffsetY([-72, 72])
+        .minDistance(4)
+        .activeOffsetX([-6, 6])
+        .failOffsetY([-120, 120])
         .onBegin(() => {
           cancelAnimation(modeDrag);
           cancelAnimation(modeTransition);
@@ -1102,8 +1066,8 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         })
         .onUpdate((event) => {
           const currentMode = appModeValue.get();
-          const canMoveTowardCoach = currentMode === 0 && event.translationX > 0;
-          const canMoveTowardDiary = currentMode === 1 && event.translationX < 0;
+          const canMoveTowardCoach = currentMode === 0 && event.translationX < 0;
+          const canMoveTowardDiary = currentMode === 1 && event.translationX > 0;
           const edgeResistance = canMoveTowardCoach || canMoveTowardDiary ? 1 : 0.18;
 
           modeDrag.set(getModeDragOffset(event.translationX * edgeResistance, screenWidth));
@@ -1118,25 +1082,25 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             return;
           }
 
-          const currentMode = appModeValue.get();
-          if (event.translationX > 0 && currentMode === 0) {
-            appModeValue.set(1);
-            modeDrag.set(withSpring(screenWidth * 0.18, {
-              velocity: event.velocityX,
-              stiffness: 280,
-              damping: 34,
+        const currentMode = appModeValue.get();
+        if (event.translationX < 0 && currentMode === 0) {
+          appModeValue.set(1);
+          modeDrag.set(withSpring(screenWidth * -0.18, {
+            velocity: event.velocityX,
+            stiffness: 280,
+            damping: 34,
               mass: 1,
             }, (finished) => {
               if (finished) {
-                runOnJS(finishGestureModeSwitch)("coach", -1);
-              }
-            }));
-          } else if (event.translationX < 0 && currentMode === 1) {
-            appModeValue.set(0);
-            modeDrag.set(withSpring(screenWidth * -0.18, {
-              velocity: event.velocityX,
-              stiffness: 280,
-              damping: 34,
+              runOnJS(finishGestureModeSwitch)("coach", -1);
+            }
+          }));
+        } else if (event.translationX > 0 && currentMode === 1) {
+          appModeValue.set(0);
+          modeDrag.set(withSpring(screenWidth * 0.18, {
+            velocity: event.velocityX,
+            stiffness: 280,
+            damping: 34,
               mass: 1,
             }, (finished) => {
               if (finished) {
@@ -1508,8 +1472,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
           </View>
         )}
 
-        <GestureDetector gesture={screenDoubleTapGesture}>
-          <View style={styles.modeTransitionViewport}>
+        <View style={styles.modeTransitionViewport}>
             <Reanimated.View style={[styles.shortcutGestureRegion, modePageAnimatedStyle]}>
         {appMode === "diary" ? (
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -1964,7 +1927,6 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
               )}
             </View>
           </View>
-        </GestureDetector>
       </SafeAreaView>
 
       <Modal
