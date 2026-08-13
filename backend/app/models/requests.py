@@ -11,6 +11,7 @@ from app.models.api import (
     FoodLogContextEntry,
     IngredientItem,
     NutritionGoals,
+    NutritionProfile,
     NutritionTotals,
 )
 
@@ -26,6 +27,10 @@ class AnalyzeFoodRequest(BaseModel):
         description="Optional client-provided idempotency key for async log creation"
     )
     userId: Optional[str] = Field(None, description="Optional user identifier for future auth")
+    nutritionProfile: Optional[NutritionProfile] = Field(
+        None,
+        description="Optional compact coach memory for personalized analysis comments",
+    )
 
     @field_validator("image")
     @classmethod
@@ -113,6 +118,10 @@ class NutritionistChatRequest(BaseModel):
     goals: NutritionGoals = Field(
         default_factory=NutritionGoals,
         description="Optional user goals; unset values may be '-'",
+    )
+    nutritionProfile: NutritionProfile = Field(
+        default_factory=NutritionProfile,
+        description="Compact coach memory; durable facts only, not raw chat history",
     )
     recentMeals: list[FoodLogContextEntry] = Field(
         default_factory=list,

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Request
 from app.exceptions import AppError
 from app.middleware.auth import require_active_subscription
 from app.middleware.rate_limiter import limiter, RATE_LIMIT_STR
+from app.models.api import NutritionProfile
 from app.models.requests import AnalyzeFoodRequest, EditLogRequest, NutritionistChatRequest
 from app.models.responses import AnalyzeFoodResponse, AsyncLogResponse, NutritionistChatResponse
 from app.services.openai import analyze_food_image, edit_log, nutritionist_chat
@@ -25,10 +26,13 @@ _idempotency_map: dict[str, str] = {}
 _log_store_lock = asyncio.Lock()
 
 
-async def _parse_input_payload(request: Request) -> tuple[Optional[str], Optional[str], Optional[str]]:
+async def _parse_input_payload(
+    request: Request,
+) -> tuple[Optional[str], Optional[str], Optional[str], Optional[NutritionProfile]]:
     image_base64: Optional[str] = None
     desc: Optional[str] = None
     idempotency_key: Optional[str] = None
+    nutrition_profile: Optional[NutritionProfile] = None
 
     content_type = request.headers.get("content-type", "")
     is_multipart = "multipart/form-data" in content_type
@@ -59,6 +63,7 @@ async def _parse_input_payload(request: Request) -> tuple[Optional[str], Optiona
             raise AppError(400, f"Validation failed: {exc}")
         image_base64 = body.image
         desc = body.description
+        nutrition_profile = body.nutritionProfile
 
     if not image_base64 and not desc:
         raise AppError(400, "Either an image or a description is required")
@@ -66,12 +71,18 @@ async def _parse_input_payload(request: Request) -> tuple[Optional[str], Optiona
     if image_base64 and not validate_base64_image_format(image_base64):
         raise AppError(400, "Unsupported image format. Supported formats: JPEG, PNG, WebP")
 
-    return image_base64, desc, idempotency_key
+    return image_base64, desc, idempotency_key, nutrition_profile
 
 
-async def _run_async_analysis(log_id: str, image_base64: str, description: Optional[str], user_id: Optional[str] = None) -> None:
+async def _run_async_analysis(
+    log_id: str,
+    image_base64: Optional[str],
+    description: Optional[str],
+    user_id: Optional[str] = None,
+    nutrition_profile: Optional[NutritionProfile] = None,
+) -> None:
     try:
-        result = await analyze_food_image(image_base64, description)
+        result = await analyze_food_image(image_base64, description, nutrition_profile=nutrition_profile)
 
         # Upload image to S3 if configured
         image_key: Optional[str] = None
@@ -116,8 +127,8 @@ async def analyze_food(
     - JSON body with base64 image: { image: "base64string", description?: "text" }
     - Multipart form data with image file and optional description field
     """
-    image_base64, desc, _ = await _parse_input_payload(request)
-    result = await analyze_food_image(image_base64, desc)
+    image_base64, desc, _, nutrition_profile = await _parse_input_payload(request)
+    result = await analyze_food_image(image_base64, desc, nutrition_profile=nutrition_profile)
 
     image_url = None
     if is_s3_configured():
@@ -173,6 +184,7 @@ async def nutritionist_chat_endpoint(
         chat_request.todayTotals,
         chat_request.recentMeals,
         chat_request.goals,
+        chat_request.nutritionProfile,
     )
     return NutritionistChatResponse(**result.model_dump())
 
@@ -183,7 +195,7 @@ async def create_log(
     request: Request,
     _user_id: Annotated[str, Depends(require_active_subscription)],
 ) -> AsyncLogResponse:
-    image_base64, desc, idempotency_key = await _parse_input_payload(request)
+    image_base64, desc, idempotency_key, nutrition_profile = await _parse_input_payload(request)
 
     async with _log_store_lock:
         if idempotency_key and idempotency_key in _idempotency_map:
@@ -207,7 +219,15 @@ async def create_log(
         if idempotency_key:
             _idempotency_map[idempotency_key] = log_id
 
-    asyncio.create_task(_run_async_analysis(log_id, image_base64, desc, user_id=_user_id))
+    asyncio.create_task(
+        _run_async_analysis(
+            log_id,
+            image_base64,
+            desc,
+            user_id=_user_id,
+            nutrition_profile=nutrition_profile,
+        )
+    )
     return AsyncLogResponse(**log)
 
 

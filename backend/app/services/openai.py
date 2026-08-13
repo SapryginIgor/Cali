@@ -22,6 +22,7 @@ from app.models.api import (
     FoodLogContextEntry,
     IngredientItem,
     NutritionGoals,
+    NutritionProfile,
     NutritionistChatResult,
     NutritionTotals,
     NutritionResult,
@@ -138,6 +139,51 @@ NUTRITION_GOALS_JSON_SCHEMA: dict[str, Any] = {
     ],
 }
 
+BEHAVIOR_PATTERN_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "id": {"type": "string"},
+        "label": {"type": "string"},
+        "trigger": {"type": "string"},
+        "context": {"type": "string"},
+        "goalRelevance": {"type": "string"},
+        "tone": {"type": "string"},
+        "active": {"type": "boolean"},
+    },
+    "required": [
+        "id",
+        "label",
+        "trigger",
+        "context",
+        "goalRelevance",
+        "tone",
+        "active",
+    ],
+}
+
+NUTRITION_PROFILE_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "summary": {"type": "string"},
+        "behaviorPatterns": {
+            "type": "array",
+            "items": BEHAVIOR_PATTERN_JSON_SCHEMA,
+        },
+        "dislikedAdvice": {"type": "string"},
+        "tonePreference": {"type": "string"},
+        "openQuestions": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": [
+        "summary",
+        "behaviorPatterns",
+        "dislikedAdvice",
+        "tonePreference",
+        "openQuestions",
+    ],
+}
+
 NUTRITIONIST_CHAT_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -149,8 +195,14 @@ NUTRITIONIST_CHAT_JSON_SCHEMA: dict[str, Any] = {
                 {"type": "null"},
             ]
         },
+        "profileUpdates": {
+            "anyOf": [
+                NUTRITION_PROFILE_JSON_SCHEMA,
+                {"type": "null"},
+            ]
+        },
     },
-    "required": ["message", "goalUpdates"],
+    "required": ["message", "goalUpdates", "profileUpdates"],
 }
 
 CLASSIFICATION_JSON_SCHEMA: dict[str, Any] = {
@@ -1114,6 +1166,7 @@ async def _analyze_with_web_search(
 async def analyze_food_image(
     image_base64: Optional[str] = None,
     description: Optional[str] = None,
+    nutrition_profile: Optional[NutritionProfile] = None,
 ) -> NutritionResult:
     """Classify and then analyse a food image with category-specific prompting."""
     pipeline_t0 = time.monotonic()
@@ -1164,6 +1217,16 @@ async def analyze_food_image(
         else:
             prompt_text, max_tokens = get_analysis_prompt(
                 classification.category, description, classification.hints
+            )
+        profile_context = _format_profile_for_analysis(nutrition_profile)
+        if profile_context:
+            prompt_text += (
+                "\nPersonalization context from coach memory:\n"
+                f"{profile_context}\n\n"
+                "If the logged meal clearly matches an active behavior pattern, add one short, gentle "
+                "sentence to `analysis` explaining why it matters for the user's stated goals and one "
+                "practical adjustment. Do not moralize, shame, diagnose, or mention patterns that do "
+                "not apply. Do not invent new profile facts.\n"
             )
         logger.info(
             "[analyze] Branch selected: category=%s | grounded_visible=%s | max_tokens=%d | prompt length=%d chars",
@@ -1577,11 +1640,46 @@ def _format_goals_for_chat(goals: Optional[NutritionGoals]) -> str:
     )
 
 
+def _format_profile_for_analysis(profile: Optional[NutritionProfile]) -> str:
+    if profile is None:
+        return ""
+
+    lines: list[str] = []
+    if profile.summary != "-":
+        lines.append(f"Summary: {profile.summary}")
+    if profile.tonePreference != "-":
+        lines.append(f"Tone preference: {profile.tonePreference}")
+    if profile.dislikedAdvice != "-":
+        lines.append(f"Advice to avoid: {profile.dislikedAdvice}")
+
+    active_patterns = [pattern for pattern in profile.behaviorPatterns if pattern.active]
+    if active_patterns:
+        lines.append("Active behavior patterns:")
+        for pattern in active_patterns[:8]:
+            lines.append(
+                f"- {pattern.label}: trigger={pattern.trigger}; context={pattern.context}; "
+                f"goal relevance={pattern.goalRelevance}; tone={pattern.tone}"
+            )
+
+    if profile.openQuestions:
+        lines.append("Open personalization questions:")
+        for question in profile.openQuestions[:5]:
+            lines.append(f"- {question}")
+
+    return "\n".join(lines)
+
+
+def _format_profile_for_chat(profile: Optional[NutritionProfile]) -> str:
+    formatted = _format_profile_for_analysis(profile)
+    return f"Current coach memory:\n{formatted or '-'}"
+
+
 async def nutritionist_chat(
     messages: list[ChatMessage],
     today_totals: Optional[NutritionTotals] = None,
     recent_meals: Optional[list[FoodLogContextEntry]] = None,
     goals: Optional[NutritionGoals] = None,
+    nutrition_profile: Optional[NutritionProfile] = None,
 ) -> NutritionistChatResult:
     """Reply as a nutrition coach using chat history and recent meal context."""
 
@@ -1589,6 +1687,7 @@ async def nutritionist_chat(
     recent_meals = recent_meals or []
     meal_context = (
         f"{_format_goals_for_chat(goals)}\n\n"
+        f"{_format_profile_for_chat(nutrition_profile)}\n\n"
         f"{_format_totals_for_chat(today_totals)}\n\n"
         f"Recent meal logs:\n{_format_meals_for_chat(recent_meals)}"
     )
@@ -1620,7 +1719,15 @@ async def nutritionist_chat(
         "context. Use concise strings like `150 g/day` or `1800 kcal/day`. If the user asks you "
         "to update, save, set, or confirm targets and you have enough information, you must return "
         "`goalUpdates`; do not say goals or targets are updated in `message` while `goalUpdates` "
-        "is null."
+        "is null.\n"
+        "11. Return `profileUpdates` when the user explicitly states, corrects, confirms, or asks "
+        "you to remember durable personalization context that should affect future meal comments. "
+        "Examples include behavior patterns, preferred tone, advice they dislike, schedule/appetite "
+        "constraints, and open personalization questions. Return the complete profile object and "
+        "preserve unchanged profile fields exactly. For behavior patterns, use stable snake_case ids "
+        "such as `late_sweets`. Set `active` false when the user asks you to forget or stop using a "
+        "pattern. Do not create durable memory from meal logs alone; ask for confirmation first. "
+        "Do not say you will remember something while `profileUpdates` is null."
     )
 
     input_messages: list[dict[str, str]] = [

@@ -56,3 +56,21 @@ export interface NutritionGoals {
   activity: string;
   notes: string;
 }
+
+export interface BehaviorPattern {
+  id: string;
+  label: string;
+  trigger: string;
+  context: string;
+  goalRelevance: string;
+  tone: string;
+  active: boolean;
+}
+
+export interface NutritionProfile {
+  summary: string;
+  behaviorPatterns: BehaviorPattern[];
+  dislikedAdvice: string;
+  tonePreference: string;
+  openQuestions: string[];
+}

@@ -129,6 +129,46 @@ class NutritionGoals(BaseModel):
         return str(value).strip() or "-"
 
 
+class BehaviorPattern(BaseModel):
+    """Durable behavior memory used to personalize future meal comments."""
+
+    id: str = Field(..., min_length=1, max_length=80)
+    label: str = Field(..., min_length=1, max_length=120)
+    trigger: str = Field(..., min_length=1, max_length=300)
+    context: str = Field(..., min_length=1, max_length=300)
+    goalRelevance: str = Field("-", min_length=1, max_length=300)
+    tone: str = Field("gentle", min_length=1, max_length=80)
+    active: bool = True
+
+
+class NutritionProfile(BaseModel):
+    """Compact coach memory for meal-log personalization."""
+
+    summary: str = Field("-", min_length=1, max_length=700)
+    behaviorPatterns: list[BehaviorPattern] = Field(default_factory=list, max_length=20)
+    dislikedAdvice: str = Field("-", min_length=1, max_length=300)
+    tonePreference: str = Field("-", min_length=1, max_length=200)
+    openQuestions: list[str] = Field(default_factory=list, max_length=10)
+
+    @field_validator("summary", "dislikedAdvice", "tonePreference", mode="before")
+    @classmethod
+    def normalize_unset_profile_text(cls, value: object) -> str:
+        if value is None:
+            return "-"
+        if isinstance(value, str):
+            return value.strip() or "-"
+        return str(value).strip() or "-"
+
+    @field_validator("openQuestions", mode="before")
+    @classmethod
+    def normalize_open_questions(cls, value: object) -> list[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value if str(item).strip()][:10]
+
+
 class ChatMessage(BaseModel):
     """A single nutritionist chat message."""
 
@@ -143,4 +183,8 @@ class NutritionistChatResult(BaseModel):
     goalUpdates: Optional[NutritionGoals] = Field(
         None,
         description="Optional goal field updates suggested by the coach",
+    )
+    profileUpdates: Optional[NutritionProfile] = Field(
+        None,
+        description="Optional durable coach memory updates accepted by the user",
     )

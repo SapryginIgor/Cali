@@ -59,7 +59,8 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 def test_json_base64_request_path(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     async def fake_analyze_food_image(
         image_base64: str,
-        description: Optional[str] = None
+        description: Optional[str] = None,
+        nutrition_profile=None,
     ) -> NutritionResult:
         assert isinstance(image_base64, str)
         assert description == "Test meal"
@@ -85,7 +86,8 @@ def test_json_base64_request_path(client: TestClient, monkeypatch: pytest.Monkey
 def test_multipart_request_path(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     async def fake_analyze_food_image(
         image_base64: str,
-        description: Optional[str] = None
+        description: Optional[str] = None,
+        nutrition_profile=None,
     ) -> NutritionResult:
         assert image_base64.startswith("data:image/png;base64,")
         assert description == "Multipart meal"
@@ -113,12 +115,20 @@ def test_validation_error_missing_input(client: TestClient):
 
 
 def test_nutritionist_chat_request_path(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    async def fake_nutritionist_chat(messages, today_totals=None, recent_meals=None, goals=None):
+    async def fake_nutritionist_chat(
+        messages,
+        today_totals=None,
+        recent_meals=None,
+        goals=None,
+        nutrition_profile=None,
+    ):
         assert messages[-1].content == "Help me improve my protein"
         assert today_totals.protein == 42
         assert recent_meals[0].description == "Chicken rice"
         assert goals.goal == "Build muscle"
         assert goals.allergies == "-"
+        assert goals.targetProtein == "140g/day"
+        assert nutrition_profile.behaviorPatterns[0].id == "late_sweets"
         return NutritionistChatResult(
             message="Add a protein anchor to your next meal.",
             goalUpdates=goals,
@@ -147,6 +157,23 @@ def test_nutritionist_chat_request_path(client: TestClient, monkeypatch: pytest.
                 "allergies": "-",
                 "activity": "Lifting 3x/week",
                 "notes": "-",
+            },
+            "nutritionProfile": {
+                "summary": "User is focused on recomposition.",
+                "behaviorPatterns": [
+                    {
+                        "id": "late_sweets",
+                        "label": "Late sweet snacks",
+                        "trigger": "Sweet snack logged in the evening",
+                        "context": "User tends to eat sweet treats before bed",
+                        "goalRelevance": "Can make recomposition harder by adding calories",
+                        "tone": "gentle",
+                        "active": True,
+                    }
+                ],
+                "dislikedAdvice": "-",
+                "tonePreference": "gentle",
+                "openQuestions": [],
             },
             "recentMeals": [
                 {
@@ -177,7 +204,10 @@ def test_nutritionist_chat_prompt_gathers_personalization_context(monkeypatch: p
             captured.update(kwargs)
 
             class FakeResponse:
-                output_text = '{"message":"What is your current weight and training schedule?","goalUpdates":null}'
+                output_text = (
+                    '{"message":"What is your current weight and training schedule?",'
+                    '"goalUpdates":null,"profileUpdates":null}'
+                )
 
             return FakeResponse()
 
@@ -208,12 +238,15 @@ def test_nutritionist_chat_prompt_gathers_personalization_context(monkeypatch: p
     assert "`goalupdates` is null unless" in instructions
     assert "must return `goalupdates`" in instructions
     assert "do not say goals or targets are updated" in instructions
+    assert "return `profileupdates`" in instructions
+    assert "do not create durable memory from meal logs alone" in instructions
 
 
 def test_upstream_error_handling(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     async def fake_analyze_food_image(
         _image_base64: str,
-        _description: Optional[str] = None
+        _description: Optional[str] = None,
+        nutrition_profile=None,
     ) -> NutritionResult:
         raise AppError(503, "Service temporarily unavailable")
 
@@ -245,7 +278,8 @@ def _wait_for_log_status(client: TestClient, log_id: str, expected_status: str, 
 def test_async_log_create_and_complete(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     async def fake_analyze_food_image(
         image_base64: str,
-        description: Optional[str] = None
+        description: Optional[str] = None,
+        nutrition_profile=None,
     ) -> NutritionResult:
         assert isinstance(image_base64, str)
         assert description == "Async meal"
@@ -274,7 +308,8 @@ def test_async_log_create_and_complete(client: TestClient, monkeypatch: pytest.M
 def test_async_log_idempotency_returns_same_log(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     async def fake_analyze_food_image(
         _image_base64: str,
-        _description: Optional[str] = None
+        _description: Optional[str] = None,
+        nutrition_profile=None,
     ) -> NutritionResult:
         return build_result()
 

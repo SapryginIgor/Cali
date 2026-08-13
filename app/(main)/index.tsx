@@ -5,6 +5,7 @@ import { Camera as ExpoCamera, CameraView, useCameraPermissions } from "expo-cam
 import * as ImagePicker from "expo-image-picker";
 import {
   ArrowUp,
+  Brain,
   Camera as CameraIcon,
   CheckCircle2,
   ImagePlus,
@@ -49,7 +50,7 @@ import { z } from "zod";
 import TrialBanner from "@/components/TrialBanner";
 import Colors from "@/constants/colors";
 import { useSubscription } from "@/contexts/SubscriptionContext";
-import { FoodEntry, IngredientItem, NutritionGoals } from "@/constants/types";
+import { BehaviorPattern, FoodEntry, IngredientItem, NutritionGoals, NutritionProfile } from "@/constants/types";
 import { useApp } from "@/contexts/AppContext";
 import { Image } from "expo-image";
 import {
@@ -97,6 +98,7 @@ const WEEKS_AFTER = 104;
 const INITIAL_WEEK_INDEX = WEEKS_BEFORE;
 const CHAT_STORAGE_KEY = "nutritionist_chat_messages";
 const GOALS_STORAGE_KEY = "nutritionist_goals";
+const NUTRITION_PROFILE_STORAGE_KEY = "nutritionist_profile";
 
 type AppMode = "diary" | "coach";
 type ChatMessage = {
@@ -104,10 +106,12 @@ type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   timestamp: number;
-  kind?: "message" | "goal_update";
+  kind?: "message" | "goal_update" | "profile_update";
   goalUpdates?: NutritionGoals;
   changedGoalFields?: NutritionGoalField[];
   goalUpdateStatus?: "updated" | "confirmed";
+  profileUpdates?: NutritionProfile;
+  changedProfileSections?: string[];
 };
 
 const INITIAL_CHAT_MESSAGES: ChatMessage[] = [
@@ -128,6 +132,14 @@ const DEFAULT_NUTRITION_GOALS: NutritionGoals = {
   allergies: "-",
   activity: "-",
   notes: "-",
+};
+
+const DEFAULT_NUTRITION_PROFILE: NutritionProfile = {
+  summary: "-",
+  behaviorPatterns: [],
+  dislikedAdvice: "-",
+  tonePreference: "-",
+  openQuestions: [],
 };
 
 type NutritionGoalField = keyof NutritionGoals;
@@ -187,6 +199,71 @@ const isGoalUpdateConfirmation = (message: string) => {
     normalized.startsWith("i'd update") ||
     normalized.includes("targets are updated") ||
     normalized.includes("goals are updated")
+  );
+};
+
+const normalizeBehaviorPattern = (pattern: Partial<BehaviorPattern>, index: number): BehaviorPattern => ({
+  id: normalizeGoalValue(pattern.id) === "-" ? `pattern_${index + 1}` : normalizeGoalValue(pattern.id),
+  label: normalizeGoalValue(pattern.label) === "-" ? "Behavior pattern" : normalizeGoalValue(pattern.label),
+  trigger: normalizeGoalValue(pattern.trigger),
+  context: normalizeGoalValue(pattern.context),
+  goalRelevance: normalizeGoalValue(pattern.goalRelevance),
+  tone: normalizeGoalValue(pattern.tone) === "-" ? "gentle" : normalizeGoalValue(pattern.tone),
+  active: typeof pattern.active === "boolean" ? pattern.active : true,
+});
+
+const normalizeNutritionProfile = (
+  profile?: Partial<NutritionProfile> | null
+): NutritionProfile => ({
+  summary: normalizeGoalValue(profile?.summary),
+  behaviorPatterns: Array.isArray(profile?.behaviorPatterns)
+    ? profile.behaviorPatterns
+        .filter(Boolean)
+        .map(normalizeBehaviorPattern)
+        .slice(0, 20)
+    : [],
+  dislikedAdvice: normalizeGoalValue(profile?.dislikedAdvice),
+  tonePreference: normalizeGoalValue(profile?.tonePreference),
+  openQuestions: Array.isArray(profile?.openQuestions)
+    ? profile.openQuestions
+        .filter((question): question is string => typeof question === "string" && question.trim().length > 0)
+        .map((question) => question.trim())
+        .slice(0, 10)
+    : [],
+});
+
+const getChangedProfileSections = (
+  previousProfile: NutritionProfile,
+  nextProfile: NutritionProfile
+) => {
+  const sections: string[] = [];
+  if (previousProfile.summary !== nextProfile.summary) sections.push("Summary");
+  if (previousProfile.dislikedAdvice !== nextProfile.dislikedAdvice) sections.push("Advice preferences");
+  if (previousProfile.tonePreference !== nextProfile.tonePreference) sections.push("Tone");
+  if (JSON.stringify(previousProfile.openQuestions) !== JSON.stringify(nextProfile.openQuestions)) {
+    sections.push("Open questions");
+  }
+  if (JSON.stringify(previousProfile.behaviorPatterns) !== JSON.stringify(nextProfile.behaviorPatterns)) {
+    sections.push("Behavior patterns");
+  }
+  return sections;
+};
+
+const hasUsefulNutritionProfile = (profile: NutritionProfile) =>
+  profile.summary !== "-" ||
+  profile.dislikedAdvice !== "-" ||
+  profile.tonePreference !== "-" ||
+  profile.openQuestions.length > 0 ||
+  profile.behaviorPatterns.some((pattern) => pattern.active);
+
+const isProfileUpdateConfirmation = (message: string) => {
+  const normalized = message.trim().toLowerCase();
+  return (
+    normalized.includes("remember") ||
+    normalized.includes("keep that in mind") ||
+    normalized.includes("saved") ||
+    normalized.includes("i’ll use that") ||
+    normalized.includes("i will use that")
   );
 };
 
@@ -412,6 +489,8 @@ export default function TodayScreen() {
   const [hasLoadedChat, setHasLoadedChat] = useState(false);
   const [nutritionGoals, setNutritionGoals] = useState<NutritionGoals>(DEFAULT_NUTRITION_GOALS);
   const [hasLoadedGoals, setHasLoadedGoals] = useState(false);
+  const [nutritionProfile, setNutritionProfile] = useState<NutritionProfile>(DEFAULT_NUTRITION_PROFILE);
+  const [hasLoadedNutritionProfile, setHasLoadedNutritionProfile] = useState(false);
   const [goalsModalVisible, setGoalsModalVisible] = useState(false);
   const hasInputContent = inputText.trim().length > 0;
   const isComposerCompact = isInputFocused || hasInputContent || selectedImage !== null;
@@ -480,6 +559,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
       const result = await generateObject<z.infer<typeof nutritionSchema>>({
         messages,
         schema: nutritionSchema,
+        nutritionProfile,
       });
       console.log("AI response:", result);
       const normalizedIngredients = normalizeIngredientList(
@@ -532,7 +612,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     } finally {
       pendingEntryIdsRef.current.delete(entryId);
     }
-  }, [entries, getAnalysisMessages, updateFoodEntry]);
+  }, [entries, getAnalysisMessages, nutritionProfile, updateFoodEntry]);
 
   const submitEntry = useCallback((imageUri: string | null, text: string) => {
     runSoftLayoutTransition();
@@ -776,6 +856,40 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     });
   }, [nutritionGoals, hasLoadedGoals]);
 
+  useEffect(() => {
+    let isMounted = true;
+    AsyncStorage.getItem(NUTRITION_PROFILE_STORAGE_KEY)
+      .then((stored) => {
+        if (!isMounted || !stored) {
+          return;
+        }
+        setNutritionProfile(normalizeNutritionProfile(JSON.parse(stored) as Partial<NutritionProfile>));
+      })
+      .catch((error) => {
+        console.warn("Failed to load nutrition profile:", error);
+      })
+      .finally(() => {
+        if (isMounted) {
+          setHasLoadedNutritionProfile(true);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedNutritionProfile) {
+      return;
+    }
+    AsyncStorage.setItem(
+      NUTRITION_PROFILE_STORAGE_KEY,
+      JSON.stringify(normalizeNutritionProfile(nutritionProfile))
+    ).catch((error) => {
+      console.warn("Failed to save nutrition profile:", error);
+    });
+  }, [nutritionProfile, hasLoadedNutritionProfile]);
+
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString("en-US", {
@@ -979,7 +1093,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     try {
       const result = await chatWithNutritionist(
         nextMessages
-          .filter((message) => message.kind !== "goal_update")
+          .filter((message) => message.kind !== "goal_update" && message.kind !== "profile_update")
           .map((message) => ({
             role: message.role,
             content: message.content,
@@ -988,6 +1102,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
           todayTotals: totals,
           recentMeals: recentEntriesForChat,
           goals: normalizeGoals(nutritionGoals),
+          nutritionProfile: normalizeNutritionProfile(nutritionProfile),
         }
       );
 
@@ -1000,12 +1115,24 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
           : getFilledGoalFields(nextGoals)
         : [];
       const shouldShowGoalUpdateCard = Boolean(nextGoals && visibleGoalFields.length > 0);
+      const currentProfile = normalizeNutritionProfile(nutritionProfile);
+      const nextProfile = result.profileUpdates ? normalizeNutritionProfile(result.profileUpdates) : null;
+      const changedProfileSections = nextProfile
+        ? getChangedProfileSections(currentProfile, nextProfile)
+        : [];
+      const shouldShowProfileUpdateCard = Boolean(
+        nextProfile && (changedProfileSections.length > 0 || hasUsefulNutritionProfile(nextProfile))
+      );
       const shouldShowAssistantMessage =
         result.message.trim().length > 0 &&
-        !(shouldShowGoalUpdateCard && isGoalUpdateConfirmation(result.message));
+        !(shouldShowGoalUpdateCard && isGoalUpdateConfirmation(result.message)) &&
+        !(shouldShowProfileUpdateCard && isProfileUpdateConfirmation(result.message));
 
       if (nextGoals && changedGoalFields.length > 0) {
         setNutritionGoals(nextGoals);
+      }
+      if (nextProfile && changedProfileSections.length > 0) {
+        setNutritionProfile(nextProfile);
       }
 
       const replyTimestamp = Date.now();
@@ -1032,6 +1159,20 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                 goalUpdates: nextGoals,
                 changedGoalFields: visibleGoalFields,
                 goalUpdateStatus: changedGoalFields.length > 0 ? "updated" as const : "confirmed" as const,
+              },
+            ]
+          : []),
+        ...(shouldShowProfileUpdateCard && nextProfile
+          ? [
+              {
+                id: `profile-update-${replyTimestamp}`,
+                role: "assistant" as const,
+                kind: "profile_update" as const,
+                content: changedProfileSections.length > 0 ? "Memory updated" : "Memory confirmed",
+                timestamp: replyTimestamp,
+                profileUpdates: nextProfile,
+                changedProfileSections:
+                  changedProfileSections.length > 0 ? changedProfileSections : ["Coach memory"],
               },
             ]
           : []),
@@ -1427,11 +1568,15 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                 const isUserMessage = message.role === "user";
                 const isGoalUpdateMessage =
                   message.kind === "goal_update" && message.goalUpdates;
+                const isProfileUpdateMessage =
+                  message.kind === "profile_update" && message.profileUpdates;
                 const isConfirmedGoalUpdate = message.goalUpdateStatus === "confirmed";
                 const updatedGoalFields =
                   message.changedGoalFields && message.changedGoalFields.length > 0
                     ? message.changedGoalFields
                     : GOAL_FIELDS.map((field) => field.key);
+                const activeProfilePatterns =
+                  message.profileUpdates?.behaviorPatterns.filter((pattern) => pattern.active) ?? [];
                 return (
                   <View
                     key={message.id}
@@ -1443,7 +1588,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                     <View
                       style={[
                         styles.chatBubble,
-                        isGoalUpdateMessage
+                        isGoalUpdateMessage || isProfileUpdateMessage
                           ? styles.goalUpdateCard
                           : isUserMessage
                             ? styles.chatBubbleUser
@@ -1491,6 +1636,44 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
                           >
                             <Text style={styles.goalUpdateEditButtonText}>Edit goals</Text>
                           </TouchableOpacity>
+                        </>
+                      ) : isProfileUpdateMessage ? (
+                        <>
+                          <View style={styles.goalUpdateHeader}>
+                            <View style={[styles.goalUpdateIcon, styles.memoryUpdateIcon]}>
+                              <Brain size={16} color="#FFFFFF" />
+                            </View>
+                            <View style={styles.goalUpdateHeaderText}>
+                              <Text style={styles.goalUpdateEyebrow}>Coach memory</Text>
+                              <Text style={styles.goalUpdateTitle}>{message.content}</Text>
+                            </View>
+                          </View>
+                          <View style={styles.goalUpdateList}>
+                            {activeProfilePatterns.slice(0, 3).map((pattern) => (
+                              <View key={pattern.id} style={styles.goalUpdateItem}>
+                                <Text style={styles.goalUpdateItemLabel}>{pattern.label}</Text>
+                                <Text style={styles.goalUpdateItemValue}>{pattern.context}</Text>
+                                {normalizeGoalValue(pattern.trigger) !== "-" && (
+                                  <Text style={styles.memoryUpdateDetail}>
+                                    Trigger: {pattern.trigger}
+                                  </Text>
+                                )}
+                              </View>
+                            ))}
+                            {activeProfilePatterns.length === 0 && (
+                              <View style={styles.goalUpdateItem}>
+                                <Text style={styles.goalUpdateItemLabel}>
+                                  {message.changedProfileSections?.join(", ") || "Profile"}
+                                </Text>
+                                <Text style={styles.goalUpdateItemValue}>
+                                  Future meal comments will use this context.
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={styles.goalUpdateCaption}>
+                            Meal analysis will use this compact memory without rereading the full coach chat.
+                          </Text>
                         </>
                       ) : isUserMessage ? (
                         <Text style={[styles.chatBubbleText, styles.chatBubbleTextUser]}>
@@ -2224,6 +2407,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  memoryUpdateIcon: {
+    backgroundColor: Colors.light.text,
+  },
   goalUpdateHeaderText: {
     flex: 1,
     gap: 1,
@@ -2267,6 +2453,12 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "800" as const,
     color: Colors.light.text,
+  },
+  memoryUpdateDetail: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "600" as const,
+    color: Colors.light.secondaryText,
   },
   goalUpdateCaption: {
     marginTop: 10,

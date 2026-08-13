@@ -3,7 +3,7 @@
  * Uses backend API for OpenAI GPT-4 Vision integration, with fallback to mock.
  */
 
-import { FoodEntry, IngredientItem, NutritionGoals } from "@/constants/types";
+import { FoodEntry, IngredientItem, NutritionGoals, NutritionProfile } from "@/constants/types";
 import { supabase } from "@/lib/supabase";
 
 export interface NutritionResult {
@@ -29,11 +29,13 @@ export interface NutritionistChatContext {
   todayTotals?: FoodEntry["nutrition"];
   recentMeals?: FoodEntry[];
   goals?: NutritionGoals;
+  nutritionProfile?: NutritionProfile;
 }
 
 export interface NutritionistChatResult {
   message: string;
   goalUpdates?: NutritionGoals;
+  profileUpdates?: NutritionProfile;
 }
 
 // Backend API configuration
@@ -123,7 +125,8 @@ async function wait(ms: number): Promise<void> {
  */
 async function callBackendAPI(
   imageBase64: string | null,
-  description?: string
+  description?: string,
+  nutritionProfile?: NutritionProfile
 ): Promise<NutritionResult> {
   if (!BACKEND_URL) {
     throw new Error("Backend URL not configured");
@@ -148,9 +151,13 @@ async function callBackendAPI(
     console.log("[Cali API] Session retrieval failed:", e);
   }
 
-  const body: Record<string, string> = {};
+  const body: Record<string, unknown> = {};
   if (imageBase64) body.image = imageBase64;
   if (description) body.description = description;
+  const normalizedProfile = normalizeNutritionProfileFromApi(nutritionProfile);
+  if (normalizedProfile && hasUsefulNutritionProfile(normalizedProfile)) {
+    body.nutritionProfile = normalizedProfile;
+  }
 
   const timeoutPromise = new Promise<never>((_, reject) =>
     setTimeout(
@@ -510,6 +517,7 @@ export async function editLogWithAI(
 export async function generateObject<T>(options: {
   messages: ({ role: string; content: unknown } | { role: string; content: unknown[] })[];
   schema: unknown;
+  nutritionProfile?: NutritionProfile;
 }): Promise<T> {
   const e2eDelay = Number(process.env.EXPO_PUBLIC_E2E_DELAY_MS || 0);
   if (Number.isFinite(e2eDelay) && e2eDelay > 0) {
@@ -555,7 +563,7 @@ export async function generateObject<T>(options: {
     console.log("[Cali API] Using backend:", BACKEND_URL, "| imageUri:", !!imageUri, "| description:", !!description);
     try {
       const imageBase64 = imageUri ? await imageUriToBase64(imageUri) : null;
-      const result = await callBackendAPI(imageBase64, description);
+      const result = await callBackendAPI(imageBase64, description, options.nutritionProfile);
       console.log("[Cali API] Backend success, calories:", result.calories);
       return result as T;
     } catch (error) {
@@ -607,6 +615,58 @@ function compactMealForChat(entry: FoodEntry) {
   };
 }
 
+function normalizeNutritionProfileFromApi(value: unknown): NutritionProfile | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const profile = value as Partial<NutritionProfile>;
+  return {
+    summary: typeof profile.summary === "string" && profile.summary.trim() ? profile.summary.trim() : "-",
+    behaviorPatterns: Array.isArray(profile.behaviorPatterns)
+      ? profile.behaviorPatterns
+          .filter((pattern) => pattern && typeof pattern === "object")
+          .map((pattern, index) => {
+            const p = pattern as unknown as Record<string, unknown>;
+            return {
+              id: typeof p.id === "string" && p.id.trim() ? p.id.trim() : `pattern_${index + 1}`,
+              label: typeof p.label === "string" && p.label.trim() ? p.label.trim() : "Behavior pattern",
+              trigger: typeof p.trigger === "string" && p.trigger.trim() ? p.trigger.trim() : "-",
+              context: typeof p.context === "string" && p.context.trim() ? p.context.trim() : "-",
+              goalRelevance:
+                typeof p.goalRelevance === "string" && p.goalRelevance.trim() ? p.goalRelevance.trim() : "-",
+              tone: typeof p.tone === "string" && p.tone.trim() ? p.tone.trim() : "gentle",
+              active: typeof p.active === "boolean" ? p.active : true,
+            };
+          })
+          .slice(0, 20)
+      : [],
+    dislikedAdvice:
+      typeof profile.dislikedAdvice === "string" && profile.dislikedAdvice.trim()
+        ? profile.dislikedAdvice.trim()
+        : "-",
+    tonePreference:
+      typeof profile.tonePreference === "string" && profile.tonePreference.trim()
+        ? profile.tonePreference.trim()
+        : "-",
+    openQuestions: Array.isArray(profile.openQuestions)
+      ? profile.openQuestions
+          .filter((question): question is string => typeof question === "string" && question.trim().length > 0)
+          .map((question) => question.trim())
+          .slice(0, 10)
+      : [],
+  };
+}
+
+function hasUsefulNutritionProfile(profile: NutritionProfile): boolean {
+  return (
+    profile.summary !== "-" ||
+    profile.behaviorPatterns.some((pattern) => pattern.active) ||
+    profile.dislikedAdvice !== "-" ||
+    profile.tonePreference !== "-" ||
+    profile.openQuestions.length > 0
+  );
+}
+
 export async function chatWithNutritionist(
   messages: NutritionistChatMessage[],
   context?: NutritionistChatContext
@@ -647,6 +707,7 @@ export async function chatWithNutritionist(
         messages: messages.slice(-30),
         todayTotals: context?.todayTotals,
         goals: context?.goals,
+        nutritionProfile: context?.nutritionProfile,
         recentMeals: context?.recentMeals?.slice(0, 20).map(compactMealForChat) ?? [],
       }),
     }),
@@ -677,5 +738,6 @@ export async function chatWithNutritionist(
       data.goalUpdates && typeof data.goalUpdates === "object"
         ? data.goalUpdates
         : undefined,
+    profileUpdates: normalizeNutritionProfileFromApi(data.profileUpdates),
   };
 }
