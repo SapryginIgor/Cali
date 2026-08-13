@@ -117,6 +117,33 @@ async function wait(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function fetchWithTimeout(
+  input: Parameters<typeof fetch>[0],
+  init: Parameters<typeof fetch>[1],
+  timeoutMessage = "Request timed out."
+): Promise<Response> {
+  const controller = new AbortController();
+  let didTimeout = false;
+  const timeoutId = setTimeout(() => {
+    didTimeout = true;
+    controller.abort();
+  }, BACKEND_REQUEST_TIMEOUT_MS);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (didTimeout) {
+      throw new Error(timeoutMessage);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 /**
  * Call backend API to analyze food (image and/or text description)
  * @param imageBase64 - Base64 encoded image (null for text-only)
@@ -159,27 +186,21 @@ async function callBackendAPI(
     body.nutritionProfile = normalizedProfile;
   }
 
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(
-      () => reject(new Error("Request timed out. Check that the backend is running and reachable.")),
-      BACKEND_REQUEST_TIMEOUT_MS
-    )
-  );
-
   try {
     let response: Response | null = null;
     let lastError: unknown = null;
     for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt += 1) {
       try {
-        response = await Promise.race([
-          fetch(url, {
+        response = await fetchWithTimeout(
+          url,
+          {
             method: "POST",
             headers,
             body: JSON.stringify(body),
             cache: "no-store",
-          }),
-          timeoutPromise,
-        ]);
+          },
+          "Request timed out. Check that the backend is running and reachable."
+        );
         lastError = null;
         break;
       } catch (error) {
@@ -420,29 +441,22 @@ export async function editLogWithAI(
   const imageBase64 = imageUri ? await imageUriToBase64(imageUri) : null;
   const normalizedSourceUrl = sourceUrl?.trim();
 
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error("Request timed out.")), BACKEND_REQUEST_TIMEOUT_MS)
-  );
-
   try {
     let response: Response | null = null;
     let lastError: unknown = null;
     for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt += 1) {
       try {
-        response = await Promise.race([
-          fetch(url, {
-            method: "POST",
-            headers,
-            cache: "no-store",
-            body: JSON.stringify({
-              ingredients,
-              correction,
-              ...(imageBase64 ? { image: imageBase64 } : {}),
-              ...(normalizedSourceUrl ? { sourceUrl: normalizedSourceUrl } : {}),
-            }),
+        response = await fetchWithTimeout(url, {
+          method: "POST",
+          headers,
+          cache: "no-store",
+          body: JSON.stringify({
+            ingredients,
+            correction,
+            ...(imageBase64 ? { image: imageBase64 } : {}),
+            ...(normalizedSourceUrl ? { sourceUrl: normalizedSourceUrl } : {}),
           }),
-          timeoutPromise,
-        ]);
+        });
         lastError = null;
         break;
       } catch (error) {
@@ -694,25 +708,18 @@ export async function chatWithNutritionist(
     console.log("[Cali API] Session retrieval failed:", e);
   }
 
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error("Request timed out.")), BACKEND_REQUEST_TIMEOUT_MS)
-  );
-
-  const response = await Promise.race([
-    fetch(`${BACKEND_URL}/api/nutritionist-chat`, {
-      method: "POST",
-      headers,
-      cache: "no-store",
-      body: JSON.stringify({
-        messages: messages.slice(-30),
-        todayTotals: context?.todayTotals,
-        goals: context?.goals,
-        nutritionProfile: context?.nutritionProfile,
-        recentMeals: context?.recentMeals?.slice(0, 20).map(compactMealForChat) ?? [],
-      }),
+  const response = await fetchWithTimeout(`${BACKEND_URL}/api/nutritionist-chat`, {
+    method: "POST",
+    headers,
+    cache: "no-store",
+    body: JSON.stringify({
+      messages: messages.slice(-30),
+      todayTotals: context?.todayTotals,
+      goals: context?.goals,
+      nutritionProfile: context?.nutritionProfile,
+      recentMeals: context?.recentMeals?.slice(0, 20).map(compactMealForChat) ?? [],
     }),
-    timeoutPromise,
-  ]);
+  });
 
   if (!response.ok) {
     const rawText = await response.text().catch(() => "");
