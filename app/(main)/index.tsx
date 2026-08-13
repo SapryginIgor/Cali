@@ -46,6 +46,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import Markdown from "react-native-markdown-display";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { z } from "zod";
 import TrialBanner from "@/components/TrialBanner";
 import Colors from "@/constants/colors";
@@ -99,6 +100,8 @@ const INITIAL_WEEK_INDEX = WEEKS_BEFORE;
 const CHAT_STORAGE_KEY = "nutritionist_chat_messages";
 const GOALS_STORAGE_KEY = "nutritionist_goals";
 const NUTRITION_PROFILE_STORAGE_KEY = "nutritionist_profile";
+const MODE_SWIPE_DISTANCE = 80;
+const MODE_SWIPE_VELOCITY = 900;
 
 type AppMode = "diary" | "coach";
 type ChatMessage = {
@@ -365,6 +368,22 @@ type CalendarCarouselProps = {
 
 const CalendarCarousel = memo(
   ({ calendarWeeks, selectedDate, todayDate, onSelectDate, screenWidth }: CalendarCarouselProps) => {
+    const calendarListRef = useRef<FlatList<Date>>(null);
+    const selectedWeekIndex = useMemo(() => {
+      const selectedWeekStart = startOfWeekSunday(selectedDate);
+      return calendarWeeks.findIndex((weekStart) => isSameDay(weekStart, selectedWeekStart));
+    }, [calendarWeeks, selectedDate]);
+
+    useEffect(() => {
+      if (selectedWeekIndex < 0) {
+        return;
+      }
+      calendarListRef.current?.scrollToIndex({
+        index: selectedWeekIndex,
+        animated: true,
+      });
+    }, [selectedWeekIndex]);
+
     const renderCalendarDay = useCallback(
       (date: Date) => {
         const isSelected = isSameDay(date, selectedDate);
@@ -431,6 +450,7 @@ const CalendarCarousel = memo(
 
     return (
       <FlatList
+        ref={calendarListRef}
         horizontal
         data={calendarWeeks}
         initialScrollIndex={INITIAL_WEEK_INDEX}
@@ -449,6 +469,12 @@ const CalendarCarousel = memo(
           offset: screenWidth * index,
           index,
         })}
+        onScrollToIndexFailed={(info) => {
+          calendarListRef.current?.scrollToOffset({
+            offset: info.averageItemLength * info.index,
+            animated: true,
+          });
+        }}
       />
     );
   }
@@ -909,6 +935,70 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     }
   }, [selectedDate, todayDate]);
 
+  const handleShortcutDayShift = useCallback((dayOffset: number) => {
+    const nextDate = normalizeDate(selectedDate);
+    nextDate.setDate(nextDate.getDate() + dayOffset);
+
+    if (nextDate.getTime() > todayDate.getTime()) {
+      return;
+    }
+
+    const firstAllowedDate = calendarWeeks[0] ? normalizeDate(calendarWeeks[0]) : null;
+    if (firstAllowedDate && nextDate.getTime() < firstAllowedDate.getTime()) {
+      return;
+    }
+
+    Keyboard.dismiss();
+    runSoftLayoutTransition();
+    setSelectedDate(nextDate);
+  }, [calendarWeeks, selectedDate, todayDate]);
+
+  const handleShortcutDoubleTap = useCallback((tapX: number) => {
+    handleShortcutDayShift(tapX < screenWidth / 2 ? -1 : 1);
+  }, [handleShortcutDayShift, screenWidth]);
+
+  const handleModeSwipe = useCallback((translationX: number, velocityX: number) => {
+    const isIntentionalSwipe =
+      Math.abs(translationX) >= MODE_SWIPE_DISTANCE ||
+      Math.abs(velocityX) >= MODE_SWIPE_VELOCITY;
+
+    if (!isIntentionalSwipe) {
+      return;
+    }
+
+    if (translationX < 0 && appMode !== "coach") {
+      Keyboard.dismiss();
+      runSoftLayoutTransition();
+      setAppMode("coach");
+    } else if (translationX > 0 && appMode !== "diary") {
+      Keyboard.dismiss();
+      runSoftLayoutTransition();
+      setAppMode("diary");
+    }
+  }, [appMode]);
+
+  const screenShortcutGesture = useMemo(() => {
+    const doubleTapGesture = Gesture.Tap()
+      .numberOfTaps(2)
+      .maxDelay(260)
+      .runOnJS(true)
+      .onEnd((event, success) => {
+        if (success) {
+          handleShortcutDoubleTap(event.x);
+        }
+      });
+
+    const modeSwipeGesture = Gesture.Pan()
+      .activeOffsetX([-32, 32])
+      .failOffsetY([-24, 24])
+      .runOnJS(true)
+      .onEnd((event) => {
+        handleModeSwipe(event.translationX, event.velocityX);
+      });
+
+    return Gesture.Simultaneous(doubleTapGesture, modeSwipeGesture);
+  }, [handleModeSwipe, handleShortcutDoubleTap]);
+
   const resetEditState = () => {
     setEditModalVisible(false);
     setEditingEntryId(null);
@@ -1259,6 +1349,8 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
           </View>
         )}
 
+        <GestureDetector gesture={screenShortcutGesture}>
+          <View style={styles.shortcutGestureRegion}>
         {appMode === "diary" ? (
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.macrosCard}>
@@ -1698,6 +1790,8 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             </ScrollView>
           </View>
         )}
+          </View>
+        </GestureDetector>
       </SafeAreaView>
 
       <Modal
@@ -2242,6 +2336,9 @@ const styles = StyleSheet.create({
     padding: 6,
   },
   content: {
+    flex: 1,
+  },
+  shortcutGestureRegion: {
     flex: 1,
   },
   coachContainer: {
