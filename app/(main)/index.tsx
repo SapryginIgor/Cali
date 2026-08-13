@@ -45,15 +45,11 @@ import {
 } from "react-native";
 import Reanimated, {
   Easing as ReanimatedEasing,
-  FadeInDown,
-  FadeInLeft,
-  FadeOutDown,
-  FadeOutLeft,
-  LinearTransition,
   cancelAnimation,
   interpolate,
   runOnJS,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withSpring,
   withTiming,
@@ -117,8 +113,18 @@ const GOALS_STORAGE_KEY = "nutritionist_goals";
 const NUTRITION_PROFILE_STORAGE_KEY = "nutritionist_profile";
 const MODE_SWIPE_DISTANCE = 80;
 const MODE_SWIPE_VELOCITY = 900;
-const MODE_TRANSITION_DISTANCE_RATIO = 0.34;
-const MODE_DRAG_LIMIT_RATIO = 0.38;
+const MODE_EDGE_WIDTH = 64;
+const MODE_PROJECT_DECELERATION = 0.99;
+const MODE_PAGE_SPRING = {
+  stiffness: 300,
+  damping: 34,
+  mass: 1,
+};
+const MODE_PAGE_FLICK_SPRING = {
+  stiffness: 280,
+  damping: 28,
+  mass: 1,
+};
 
 const rubberband = (overshoot: number, dimension: number, constant = 0.55) => {
   "worklet";
@@ -129,7 +135,7 @@ const rubberband = (overshoot: number, dimension: number, constant = 0.55) => {
 const getModeDragOffset = (translationX: number, screenWidth: number) => {
   "worklet";
 
-  const limit = screenWidth * MODE_DRAG_LIMIT_RATIO;
+  const limit = screenWidth;
   const distance = Math.abs(translationX);
 
   if (distance <= limit) {
@@ -137,6 +143,12 @@ const getModeDragOffset = (translationX: number, screenWidth: number) => {
   }
 
   return Math.sign(translationX) * (limit + rubberband(distance - limit, screenWidth, 0.35));
+};
+
+const projectModeGesture = (velocityX: number) => {
+  "worklet";
+
+  return (velocityX / 1000) * MODE_PROJECT_DECELERATION / (1 - MODE_PROJECT_DECELERATION);
 };
 
 type AppMode = "diary" | "coach";
@@ -579,9 +591,9 @@ export default function TodayScreen() {
   const cameraRef = useRef<CameraView>(null);
   const inputBarInputRef = useRef<TextInput>(null);
   const chatScrollRef = useRef<ScrollView>(null);
-  const modeTransition = useSharedValue(0);
-  const modeTransitionDirection = useSharedValue(0);
-  const modeDrag = useSharedValue(0);
+  const reduceMotion = useReducedMotion();
+  const pageProgress = useSharedValue(0);
+  const gestureStartPage = useSharedValue(0);
   const appModeValue = useSharedValue(0);
   const [cameraFacing, setCameraFacing] = useState<"front" | "back">("back");
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -724,25 +736,16 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
   }, [isPremium, presentPaywall, cameraPermission, requestCameraPermission]);
 
   const handleInputTextChange = useCallback((nextText: string) => {
-    if (inputText.trim().length === 0 && nextText.trim().length > 0) {
-      runSoftLayoutTransition();
-    }
     setInputText(nextText);
-  }, [inputText]);
+  }, []);
 
   const handleInputFocus = useCallback(() => {
-    if (!isInputFocused) {
-      runSoftLayoutTransition();
-    }
     setIsInputFocused(true);
-  }, [isInputFocused]);
+  }, []);
 
   const handleInputBlur = useCallback(() => {
-    if (isInputFocused && inputText.trim().length === 0 && selectedImage === null) {
-      runSoftLayoutTransition();
-    }
     setIsInputFocused(false);
-  }, [inputText, isInputFocused, selectedImage]);
+  }, []);
 
   const toJpegDataUri = useCallback((base64?: string | null) => {
     if (!base64) {
@@ -993,7 +996,6 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     }
 
     Keyboard.dismiss();
-    runSoftLayoutTransition();
     setSelectedDate(nextDate);
   }, [calendarWeeks, selectedDate, todayDate]);
 
@@ -1005,73 +1007,80 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     Keyboard.dismiss();
   }, []);
 
-  const switchAppMode = useCallback((nextMode: AppMode) => {
+  const modeToPage = useCallback((mode: AppMode) => (mode === "coach" ? 1 : 0), []);
+
+  const pageToMode = useCallback((page: number): AppMode => (page >= 0.5 ? "coach" : "diary"), []);
+
+  const commitPagerTarget = useCallback((targetPage: number, velocityX: number) => {
+    const nextPage = targetPage >= 0.5 ? 1 : 0;
+    const nextMode = pageToMode(nextPage);
+
+    setAppMode(nextMode);
+    appModeValue.set(nextPage);
+    cancelAnimation(pageProgress);
+
+    if (reduceMotion) {
+      pageProgress.set(withTiming(nextPage, {
+        duration: 160,
+        easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+      }));
+      return;
+    }
+
+    const isFlick = Math.abs(velocityX) >= MODE_SWIPE_VELOCITY;
+    pageProgress.set(withSpring(nextPage, {
+      ...(isFlick ? MODE_PAGE_FLICK_SPRING : MODE_PAGE_SPRING),
+      velocity: -velocityX / Math.max(screenWidth, 1),
+    }));
+  }, [appModeValue, pageProgress, pageToMode, reduceMotion, screenWidth]);
+
+  const animateToMode = useCallback((nextMode: AppMode) => {
     if (nextMode === appMode) {
       return;
     }
 
     Keyboard.dismiss();
-    const direction = nextMode === "coach" ? -1 : 1;
-    setAppMode(nextMode);
-    appModeValue.set(nextMode === "coach" ? 1 : 0);
-    cancelAnimation(modeDrag);
-    cancelAnimation(modeTransition);
-    modeTransitionDirection.set(direction);
-    modeDrag.set(0);
-    modeTransition.set(1);
-    modeTransition.set(withTiming(0, {
-      duration: 290,
-      easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
-    }));
-  }, [appMode, appModeValue, modeDrag, modeTransition, modeTransitionDirection]);
+    commitPagerTarget(modeToPage(nextMode), 0);
+  }, [appMode, commitPagerTarget, modeToPage]);
 
-  const finishGestureModeSwitch = useCallback((nextMode: AppMode, direction: number) => {
-    modeTransitionDirection.set(direction);
-    modeDrag.set(0);
-    modeTransition.set(1);
-    setAppMode(nextMode);
-    appModeValue.set(nextMode === "coach" ? 1 : 0);
-    modeTransition.set(withTiming(0, {
-      duration: 290,
-      easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
-    }));
-  }, [appModeValue, modeDrag, modeTransition, modeTransitionDirection]);
+  const pagerAnimatedStyle = useAnimatedStyle(() => {
+    const progress = pageProgress.get();
 
-  const settleModeDrag = useCallback((toValue: number, velocityX: number) => {
-    "worklet";
-
-    cancelAnimation(modeDrag);
-    modeDrag.set(withSpring(toValue, {
-      velocity: velocityX,
-      stiffness: 260,
-      damping: 30,
-      mass: 1,
-    }));
-  }, [modeDrag]);
-
-  const modePageAnimatedStyle = useAnimatedStyle(() => {
-    const transition = modeTransition.get();
-    const dragX = modeDrag.get();
-    const transitionTranslateX = interpolate(
-      transition,
-      [0, 1],
-      [0, modeTransitionDirection.get() * screenWidth * MODE_TRANSITION_DISTANCE_RATIO]
-    );
-    const dragProgress = Math.min(Math.abs(dragX) / (screenWidth * 0.28), 1);
-    const visibleProgress = Math.max(transition, dragProgress);
+    if (reduceMotion) {
+      return {
+        opacity: interpolate(progress, [0, 0.5, 1], [1, 0.94, 1]),
+        transform: [{ translateX: progress < 0.5 ? -screenWidth : 0 }],
+      };
+    }
 
     return {
-      opacity: 1 - visibleProgress * 0.08,
-      transform: [
-        {
-          translateX: dragX + transitionTranslateX,
-        },
-        {
-          scale: 1 - visibleProgress * 0.015,
-        },
-      ],
+      transform: [{ translateX: (progress - 1) * screenWidth }],
     };
-  }, [screenWidth]);
+  }, [reduceMotion, screenWidth]);
+
+  const diaryPageAnimatedStyle = useAnimatedStyle(() => {
+    const progress = pageProgress.get();
+
+    if (!reduceMotion) {
+      return { opacity: 1 };
+    }
+
+    return {
+      opacity: interpolate(progress, [0, 1], [1, 0]),
+    };
+  }, [reduceMotion]);
+
+  const coachPageAnimatedStyle = useAnimatedStyle(() => {
+    const progress = pageProgress.get();
+
+    if (!reduceMotion) {
+      return { opacity: 1 };
+    }
+
+    return {
+      opacity: interpolate(progress, [0, 1], [0, 1]),
+    };
+  }, [reduceMotion]);
 
   const screenDoubleTapGesture = useMemo(
     () =>
@@ -1094,66 +1103,49 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         .activeOffsetX([-18, 18])
         .failOffsetY([-72, 72])
         .onBegin(() => {
-          cancelAnimation(modeDrag);
-          cancelAnimation(modeTransition);
-          modeTransition.set(0);
+          cancelAnimation(pageProgress);
+          gestureStartPage.set(pageProgress.get());
           runOnJS(dismissKeyboard)();
         })
         .onUpdate((event) => {
           const currentMode = appModeValue.get();
           const canMoveTowardCoach = currentMode === 0 && event.translationX > 0;
           const canMoveTowardDiary = currentMode === 1 && event.translationX < 0;
-          const edgeResistance = canMoveTowardCoach || canMoveTowardDiary ? 1 : 0.18;
+          const startOffset = (gestureStartPage.get() - 1) * screenWidth;
+          const rawOffset = startOffset + event.translationX;
+          const clampedOffset =
+            canMoveTowardCoach || canMoveTowardDiary
+              ? Math.max(-screenWidth, Math.min(0, rawOffset))
+              : startOffset + getModeDragOffset(event.translationX * 0.18, screenWidth);
+          const nextProgress = clampedOffset / Math.max(screenWidth, 1) + 1;
 
-          modeDrag.set(getModeDragOffset(event.translationX * edgeResistance, screenWidth));
+          pageProgress.set(Math.max(0, Math.min(1, nextProgress)));
         })
         .onEnd((event) => {
-          const isIntentionalSwipe =
-            Math.abs(event.translationX) >= MODE_SWIPE_DISTANCE ||
-            Math.abs(event.velocityX) >= MODE_SWIPE_VELOCITY;
-
-          if (!isIntentionalSwipe) {
-            settleModeDrag(0, event.velocityX);
-            return;
-          }
-
           const currentMode = appModeValue.get();
-          if (event.translationX > 0 && currentMode === 0) {
-            appModeValue.set(1);
-            modeDrag.set(withSpring(screenWidth * 0.18, {
-              velocity: event.velocityX,
-              stiffness: 280,
-              damping: 34,
-              mass: 1,
-            }, (finished) => {
-              if (finished) {
-                runOnJS(finishGestureModeSwitch)("coach", -1);
-              }
-            }));
-          } else if (event.translationX < 0 && currentMode === 1) {
-            appModeValue.set(0);
-            modeDrag.set(withSpring(screenWidth * -0.18, {
-              velocity: event.velocityX,
-              stiffness: 280,
-              damping: 34,
-              mass: 1,
-            }, (finished) => {
-              if (finished) {
-                runOnJS(finishGestureModeSwitch)("diary", 1);
-              }
-            }));
-          } else {
-            settleModeDrag(0, event.velocityX);
-          }
+          const currentOffset = (pageProgress.get() - 1) * screenWidth;
+          const projectedOffset = currentOffset + projectModeGesture(event.velocityX);
+          const projectedProgress = Math.max(0, Math.min(1, projectedOffset / Math.max(screenWidth, 1) + 1));
+          const passedDistance =
+            (currentMode === 0 && event.translationX >= MODE_SWIPE_DISTANCE) ||
+            (currentMode === 1 && event.translationX <= -MODE_SWIPE_DISTANCE);
+          const passedVelocity =
+            (currentMode === 0 && event.velocityX >= MODE_SWIPE_VELOCITY) ||
+            (currentMode === 1 && event.velocityX <= -MODE_SWIPE_VELOCITY);
+          const targetPage =
+            passedDistance || passedVelocity
+              ? currentMode === 0 ? 1 : 0
+              : projectedProgress >= 0.5 ? 1 : 0;
+
+          runOnJS(commitPagerTarget)(targetPage, event.velocityX);
         }),
     [
       appModeValue,
+      commitPagerTarget,
       dismissKeyboard,
-      finishGestureModeSwitch,
-      modeDrag,
-      modeTransition,
+      gestureStartPage,
+      pageProgress,
       screenWidth,
-      settleModeDrag,
     ]
   );
 
@@ -1455,7 +1447,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
           <View style={styles.modeSwitch}>
             <TouchableOpacity
               style={[styles.modeSwitchButton, appMode === "diary" && styles.modeSwitchButtonActive]}
-              onPress={() => switchAppMode("diary")}
+              onPress={() => animateToMode("diary")}
               accessibilityRole="button"
               accessibilityLabel="Open meal diary"
               activeOpacity={0.85}
@@ -1470,7 +1462,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.modeSwitchButton, appMode === "coach" && styles.modeSwitchButtonActive]}
-              onPress={() => switchAppMode("coach")}
+              onPress={() => animateToMode("coach")}
               accessibilityRole="button"
               accessibilityLabel="Open nutrition coach chat"
               activeOpacity={0.85}
@@ -1495,7 +1487,205 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
           </TouchableOpacity>
         </View>
 
-        {appMode === "diary" && (
+        <GestureDetector gesture={screenDoubleTapGesture}>
+          <View style={styles.modePagerViewport}>
+            <Reanimated.View
+              style={[
+                styles.modePagerTrack,
+                { width: screenWidth * 2 },
+                pagerAnimatedStyle,
+              ]}
+            >
+              <Reanimated.View
+                style={[
+                  styles.modePagerPage,
+                  { width: screenWidth },
+                  coachPageAnimatedStyle,
+                ]}
+              >
+          <View style={styles.coachContainer}>
+            <ScrollView
+              ref={chatScrollRef}
+              style={styles.coachMessages}
+              contentContainerStyle={styles.coachMessagesContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}
+            >
+              <View style={styles.coachContextPanel}>
+                <View style={styles.coachContextHeader}>
+                  <Sparkles size={16} color={Colors.light.tint} />
+                  <Text style={styles.coachContextTitle}>Nutrition Coach</Text>
+                </View>
+                <Text style={styles.coachContextText}>
+                  Goals are optional and stay synced with Daily Intake.
+                </Text>
+                <View style={styles.coachDailySyncRow}>
+                  <Text style={styles.coachDailySyncText}>
+                    Today: {Math.round(totals.calories)}{calorieGoal ? ` / ${Math.round(calorieGoal)}` : ""} cal
+                  </Text>
+                  <Text style={styles.coachDailySyncText}>
+                    Protein: {Math.round(totals.protein)}{proteinGoal ? ` / ${Math.round(proteinGoal)}` : ""}g
+                  </Text>
+                  {normalizeGoalValue(nutritionGoals.goal) !== "-" && (
+                    <Text style={styles.coachDailySyncText}>
+                      {normalizeGoalValue(nutritionGoals.goal)}
+                    </Text>
+                  )}
+                </View>
+                <TouchableOpacity
+                  style={styles.coachGoalsButton}
+                  onPress={() => setGoalsModalVisible(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit nutrition goals"
+                  activeOpacity={0.85}
+                >
+                  <SlidersHorizontal size={16} color={Colors.light.tint} />
+                  <Text style={styles.coachGoalsButtonText}>Goals</Text>
+                </TouchableOpacity>
+              </View>
+
+              {chatMessages.map((message) => {
+                const isUserMessage = message.role === "user";
+                const isGoalUpdateMessage =
+                  message.kind === "goal_update" && message.goalUpdates;
+                const isProfileUpdateMessage =
+                  message.kind === "profile_update" && message.profileUpdates;
+                const isConfirmedGoalUpdate = message.goalUpdateStatus === "confirmed";
+                const updatedGoalFields =
+                  message.changedGoalFields && message.changedGoalFields.length > 0
+                    ? message.changedGoalFields
+                    : GOAL_FIELDS.map((field) => field.key);
+                const activeProfilePatterns =
+                  message.profileUpdates?.behaviorPatterns.filter((pattern) => pattern.active) ?? [];
+                return (
+                  <View
+                    key={message.id}
+                    style={[
+                      styles.chatMessageRow,
+                      isUserMessage && styles.chatMessageRowUser,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.chatBubble,
+                        isGoalUpdateMessage || isProfileUpdateMessage
+                          ? styles.goalUpdateCard
+                          : isUserMessage
+                            ? styles.chatBubbleUser
+                            : styles.chatBubbleAssistant,
+                      ]}
+                    >
+                      {isGoalUpdateMessage ? (
+                        <>
+                          <View style={styles.goalUpdateHeader}>
+                            <View style={styles.goalUpdateIcon}>
+                              <CheckCircle2 size={16} color="#FFFFFF" />
+                            </View>
+                            <View style={styles.goalUpdateHeaderText}>
+                              <Text style={styles.goalUpdateEyebrow}>
+                                {isConfirmedGoalUpdate ? "Already saved" : "Saved to your profile"}
+                              </Text>
+                              <Text style={styles.goalUpdateTitle}>
+                                {isConfirmedGoalUpdate ? "Goals confirmed" : "Goals updated"}
+                              </Text>
+                            </View>
+                          </View>
+                          <View style={styles.goalUpdateList}>
+                            {updatedGoalFields.map((field) => (
+                              <View key={field} style={styles.goalUpdateItem}>
+                                <Text style={styles.goalUpdateItemLabel}>
+                                  {GOAL_FIELD_LABELS[field]}
+                                </Text>
+                                <Text style={styles.goalUpdateItemValue}>
+                                  {normalizeGoalValue(message.goalUpdates?.[field])}
+                                </Text>
+                              </View>
+                            ))}
+                          </View>
+                          <Text style={styles.goalUpdateCaption}>
+                            {isConfirmedGoalUpdate
+                              ? "Daily Intake and future coach replies are already using these targets."
+                              : "Daily Intake and future coach replies will use these targets."}
+                          </Text>
+                          <TouchableOpacity
+                            style={styles.goalUpdateEditButton}
+                            onPress={() => setGoalsModalVisible(true)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Edit nutrition goals"
+                            activeOpacity={0.85}
+                          >
+                            <Text style={styles.goalUpdateEditButtonText}>Edit goals</Text>
+                          </TouchableOpacity>
+                        </>
+                      ) : isProfileUpdateMessage ? (
+                        <>
+                          <View style={styles.goalUpdateHeader}>
+                            <View style={[styles.goalUpdateIcon, styles.memoryUpdateIcon]}>
+                              <Brain size={16} color="#FFFFFF" />
+                            </View>
+                            <View style={styles.goalUpdateHeaderText}>
+                              <Text style={styles.goalUpdateEyebrow}>Coach memory</Text>
+                              <Text style={styles.goalUpdateTitle}>{message.content}</Text>
+                            </View>
+                          </View>
+                          <View style={styles.goalUpdateList}>
+                            {activeProfilePatterns.slice(0, 3).map((pattern) => (
+                              <View key={pattern.id} style={styles.goalUpdateItem}>
+                                <Text style={styles.goalUpdateItemLabel}>{pattern.label}</Text>
+                                <Text style={styles.goalUpdateItemValue}>{pattern.context}</Text>
+                                {normalizeGoalValue(pattern.trigger) !== "-" && (
+                                  <Text style={styles.memoryUpdateDetail}>
+                                    Trigger: {pattern.trigger}
+                                  </Text>
+                                )}
+                              </View>
+                            ))}
+                            {activeProfilePatterns.length === 0 && (
+                              <View style={styles.goalUpdateItem}>
+                                <Text style={styles.goalUpdateItemLabel}>
+                                  {message.changedProfileSections?.join(", ") || "Profile"}
+                                </Text>
+                                <Text style={styles.goalUpdateItemValue}>
+                                  Future meal comments will use this context.
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={styles.goalUpdateCaption}>
+                            Meal analysis will use this compact memory without rereading the full coach chat.
+                          </Text>
+                        </>
+                      ) : isUserMessage ? (
+                        <Text style={[styles.chatBubbleText, styles.chatBubbleTextUser]}>
+                          {message.content}
+                        </Text>
+                      ) : (
+                        <Markdown style={markdownStyles}>{message.content}</Markdown>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+
+              {isChatLoading && (
+                <View style={styles.chatMessageRow}>
+                  <View style={[styles.chatBubble, styles.chatBubbleAssistant, styles.chatThinkingBubble]}>
+                    <ActivityIndicator size="small" color={Colors.light.tint} />
+                    <Text style={styles.chatThinkingText}>Thinking</Text>
+                  </View>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+              </Reanimated.View>
+              <Reanimated.View
+                style={[
+                  styles.modePagerPage,
+                  { width: screenWidth },
+                  diaryPageAnimatedStyle,
+                ]}
+              >
           <View style={styles.calendarContainer}>
             <CalendarCarousel
               calendarWeeks={calendarWeeks}
@@ -1505,12 +1695,6 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
               screenWidth={screenWidth}
             />
           </View>
-        )}
-
-        <GestureDetector gesture={screenDoubleTapGesture}>
-          <View style={styles.modeTransitionViewport}>
-            <Reanimated.View style={[styles.shortcutGestureRegion, modePageAnimatedStyle]}>
-        {appMode === "diary" ? (
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.macrosCard}>
             <LinearGradient
@@ -1772,183 +1956,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             </View>
           )}
         </ScrollView>
-        ) : (
-          <View style={styles.coachContainer}>
-            <ScrollView
-              ref={chatScrollRef}
-              style={styles.coachMessages}
-              contentContainerStyle={styles.coachMessagesContent}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}
-            >
-              <View style={styles.coachContextPanel}>
-                <View style={styles.coachContextHeader}>
-                  <Sparkles size={16} color={Colors.light.tint} />
-                  <Text style={styles.coachContextTitle}>Nutrition Coach</Text>
-                </View>
-                <Text style={styles.coachContextText}>
-                  Goals are optional and stay synced with Daily Intake.
-                </Text>
-                <View style={styles.coachDailySyncRow}>
-                  <Text style={styles.coachDailySyncText}>
-                    Today: {Math.round(totals.calories)}{calorieGoal ? ` / ${Math.round(calorieGoal)}` : ""} cal
-                  </Text>
-                  <Text style={styles.coachDailySyncText}>
-                    Protein: {Math.round(totals.protein)}{proteinGoal ? ` / ${Math.round(proteinGoal)}` : ""}g
-                  </Text>
-                  {normalizeGoalValue(nutritionGoals.goal) !== "-" && (
-                    <Text style={styles.coachDailySyncText}>
-                      {normalizeGoalValue(nutritionGoals.goal)}
-                    </Text>
-                  )}
-                </View>
-                <TouchableOpacity
-                  style={styles.coachGoalsButton}
-                  onPress={() => setGoalsModalVisible(true)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Edit nutrition goals"
-                  activeOpacity={0.85}
-                >
-                  <SlidersHorizontal size={16} color={Colors.light.tint} />
-                  <Text style={styles.coachGoalsButtonText}>Goals</Text>
-                </TouchableOpacity>
-              </View>
-
-              {chatMessages.map((message) => {
-                const isUserMessage = message.role === "user";
-                const isGoalUpdateMessage =
-                  message.kind === "goal_update" && message.goalUpdates;
-                const isProfileUpdateMessage =
-                  message.kind === "profile_update" && message.profileUpdates;
-                const isConfirmedGoalUpdate = message.goalUpdateStatus === "confirmed";
-                const updatedGoalFields =
-                  message.changedGoalFields && message.changedGoalFields.length > 0
-                    ? message.changedGoalFields
-                    : GOAL_FIELDS.map((field) => field.key);
-                const activeProfilePatterns =
-                  message.profileUpdates?.behaviorPatterns.filter((pattern) => pattern.active) ?? [];
-                return (
-                  <View
-                    key={message.id}
-                    style={[
-                      styles.chatMessageRow,
-                      isUserMessage && styles.chatMessageRowUser,
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.chatBubble,
-                        isGoalUpdateMessage || isProfileUpdateMessage
-                          ? styles.goalUpdateCard
-                          : isUserMessage
-                            ? styles.chatBubbleUser
-                            : styles.chatBubbleAssistant,
-                      ]}
-                    >
-                      {isGoalUpdateMessage ? (
-                        <>
-                          <View style={styles.goalUpdateHeader}>
-                            <View style={styles.goalUpdateIcon}>
-                              <CheckCircle2 size={16} color="#FFFFFF" />
-                            </View>
-                            <View style={styles.goalUpdateHeaderText}>
-                              <Text style={styles.goalUpdateEyebrow}>
-                                {isConfirmedGoalUpdate ? "Already saved" : "Saved to your profile"}
-                              </Text>
-                              <Text style={styles.goalUpdateTitle}>
-                                {isConfirmedGoalUpdate ? "Goals confirmed" : "Goals updated"}
-                              </Text>
-                            </View>
-                          </View>
-                          <View style={styles.goalUpdateList}>
-                            {updatedGoalFields.map((field) => (
-                              <View key={field} style={styles.goalUpdateItem}>
-                                <Text style={styles.goalUpdateItemLabel}>
-                                  {GOAL_FIELD_LABELS[field]}
-                                </Text>
-                                <Text style={styles.goalUpdateItemValue}>
-                                  {normalizeGoalValue(message.goalUpdates?.[field])}
-                                </Text>
-                              </View>
-                            ))}
-                          </View>
-                          <Text style={styles.goalUpdateCaption}>
-                            {isConfirmedGoalUpdate
-                              ? "Daily Intake and future coach replies are already using these targets."
-                              : "Daily Intake and future coach replies will use these targets."}
-                          </Text>
-                          <TouchableOpacity
-                            style={styles.goalUpdateEditButton}
-                            onPress={() => setGoalsModalVisible(true)}
-                            accessibilityRole="button"
-                            accessibilityLabel="Edit nutrition goals"
-                            activeOpacity={0.85}
-                          >
-                            <Text style={styles.goalUpdateEditButtonText}>Edit goals</Text>
-                          </TouchableOpacity>
-                        </>
-                      ) : isProfileUpdateMessage ? (
-                        <>
-                          <View style={styles.goalUpdateHeader}>
-                            <View style={[styles.goalUpdateIcon, styles.memoryUpdateIcon]}>
-                              <Brain size={16} color="#FFFFFF" />
-                            </View>
-                            <View style={styles.goalUpdateHeaderText}>
-                              <Text style={styles.goalUpdateEyebrow}>Coach memory</Text>
-                              <Text style={styles.goalUpdateTitle}>{message.content}</Text>
-                            </View>
-                          </View>
-                          <View style={styles.goalUpdateList}>
-                            {activeProfilePatterns.slice(0, 3).map((pattern) => (
-                              <View key={pattern.id} style={styles.goalUpdateItem}>
-                                <Text style={styles.goalUpdateItemLabel}>{pattern.label}</Text>
-                                <Text style={styles.goalUpdateItemValue}>{pattern.context}</Text>
-                                {normalizeGoalValue(pattern.trigger) !== "-" && (
-                                  <Text style={styles.memoryUpdateDetail}>
-                                    Trigger: {pattern.trigger}
-                                  </Text>
-                                )}
-                              </View>
-                            ))}
-                            {activeProfilePatterns.length === 0 && (
-                              <View style={styles.goalUpdateItem}>
-                                <Text style={styles.goalUpdateItemLabel}>
-                                  {message.changedProfileSections?.join(", ") || "Profile"}
-                                </Text>
-                                <Text style={styles.goalUpdateItemValue}>
-                                  Future meal comments will use this context.
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                          <Text style={styles.goalUpdateCaption}>
-                            Meal analysis will use this compact memory without rereading the full coach chat.
-                          </Text>
-                        </>
-                      ) : isUserMessage ? (
-                        <Text style={[styles.chatBubbleText, styles.chatBubbleTextUser]}>
-                          {message.content}
-                        </Text>
-                      ) : (
-                        <Markdown style={markdownStyles}>{message.content}</Markdown>
-                      )}
-                    </View>
-                  </View>
-                );
-              })}
-
-              {isChatLoading && (
-                <View style={styles.chatMessageRow}>
-                  <View style={[styles.chatBubble, styles.chatBubbleAssistant, styles.chatThinkingBubble]}>
-                    <ActivityIndicator size="small" color={Colors.light.tint} />
-                    <Text style={styles.chatThinkingText}>Thinking</Text>
-                  </View>
-                </View>
-              )}
-            </ScrollView>
-          </View>
-        )}
+              </Reanimated.View>
             </Reanimated.View>
             <View pointerEvents="box-none" style={styles.modeSwipeOverlay}>
               {appMode === "diary" && (
@@ -2298,136 +2306,131 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         </View>
       </Modal>
 
-      {appMode === "diary" ? (
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={styles.inputBarWrapper}
-      >
+      <View style={styles.composerPagerViewport}>
         <Reanimated.View
-          layout={LinearTransition.duration(260).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
-          style={[styles.inputBar, isComposerCompact && styles.inputBarCompact]}
+          style={[
+            styles.composerPagerTrack,
+            { width: screenWidth * 2 },
+            pagerAnimatedStyle,
+          ]}
         >
-          {selectedImage && (
-            <View style={styles.inputBarThumb}>
-              <Image source={{ uri: selectedImage }} style={styles.inputBarThumbImage} contentFit="cover" />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={[styles.coachInputWrapper, styles.composerPagerPage, { width: screenWidth }]}
+          >
+            <View style={styles.coachInputBar}>
+              <TextInput
+                style={styles.coachInput}
+                placeholder="Ask about goals, meals, cravings..."
+                placeholderTextColor={Colors.light.secondaryText}
+                value={chatInput}
+                onChangeText={setChatInput}
+                editable={!isChatLoading}
+                multiline
+                maxLength={1000}
+              />
               <TouchableOpacity
-                style={styles.inputBarThumbRemove}
-                onPress={() => setSelectedImage(null)}
+                style={[
+                  styles.coachSendButton,
+                  (!chatInput.trim() || isChatLoading) && styles.sendButtonDisabled,
+                ]}
+                onPress={handleSendChatMessage}
+                disabled={!chatInput.trim() || isChatLoading}
                 accessibilityRole="button"
-                accessibilityLabel="Remove photo"
+                accessibilityLabel="Send message"
               >
-                <X color="#FFFFFF" size={10} />
+                <ArrowUp color="#FFFFFF" size={22} strokeWidth={3} />
               </TouchableOpacity>
             </View>
-          )}
-          {isComposerCompact && (
-            <Reanimated.View
-              entering={FadeInLeft.duration(180).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
-              exiting={FadeOutLeft.duration(140).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
-            >
+            <View style={{ height: safeInsets.bottom }} />
+          </KeyboardAvoidingView>
+
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={[styles.inputBarWrapper, styles.composerPagerPage, { width: screenWidth }]}
+          >
+            <View style={[styles.inputBar, isComposerCompact && styles.inputBarCompact]}>
+              {selectedImage && (
+                <View style={styles.inputBarThumb}>
+                  <Image source={{ uri: selectedImage }} style={styles.inputBarThumbImage} contentFit="cover" />
+                  <TouchableOpacity
+                    style={styles.inputBarThumbRemove}
+                    onPress={() => setSelectedImage(null)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove photo"
+                  >
+                    <X color="#FFFFFF" size={10} />
+                  </TouchableOpacity>
+                </View>
+              )}
+              {isComposerCompact && (
+                <TouchableOpacity
+                  style={styles.inputBarCameraButton}
+                  onPress={handleOpenLogMeal}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add photo"
+                >
+                  <LinearGradient
+                    colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.inputBarCameraButtonGradient}
+                  >
+                    <CameraIcon color="#FFFFFF" size={16} />
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
+              <TextInput
+                ref={inputBarInputRef}
+                style={styles.inputBarInput}
+                placeholder="What did you eat?"
+                placeholderTextColor={Colors.light.secondaryText}
+                value={inputText}
+                onChangeText={handleInputTextChange}
+                onFocus={handleInputFocus}
+                onBlur={handleInputBlur}
+                multiline
+                maxLength={200}
+                editable={!isSubmitting}
+              />
+              {(hasInputContent || selectedImage !== null) && (
+                <TouchableOpacity
+                  style={[styles.inputBarSend, isSubmitting && styles.sendButtonDisabled]}
+                  onPress={handleSubmit}
+                  disabled={isSubmitting}
+                  accessibilityRole="button"
+                  accessibilityLabel="Log meal"
+                >
+                  <ArrowUp color="#FFFFFF" size={22} strokeWidth={3} />
+                </TouchableOpacity>
+              )}
+            </View>
+            {!isComposerCompact && (
               <TouchableOpacity
-                style={styles.inputBarCameraButton}
+                style={styles.inputBarCameraButtonLane}
                 onPress={handleOpenLogMeal}
                 activeOpacity={0.85}
                 accessibilityRole="button"
                 accessibilityLabel="Add photo"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <LinearGradient
-                  colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.inputBarCameraButtonGradient}
-                >
-                  <CameraIcon color="#FFFFFF" size={16} />
-                </LinearGradient>
+                <View style={styles.inputBarCameraButtonProminent}>
+                  <LinearGradient
+                    colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.inputBarCameraButtonGradient}
+                  >
+                    <CameraIcon color="#FFFFFF" size={40} />
+                  </LinearGradient>
+                </View>
               </TouchableOpacity>
-            </Reanimated.View>
-          )}
-          <TextInput
-            ref={inputBarInputRef}
-            style={styles.inputBarInput}
-            placeholder="What did you eat?"
-            placeholderTextColor={Colors.light.secondaryText}
-            value={inputText}
-            onChangeText={handleInputTextChange}
-            onFocus={handleInputFocus}
-            onBlur={handleInputBlur}
-            multiline
-            maxLength={200}
-            editable={!isSubmitting}
-          />
-          {(hasInputContent || selectedImage !== null) && (
-            <TouchableOpacity
-              style={[styles.inputBarSend, isSubmitting && styles.sendButtonDisabled]}
-              onPress={handleSubmit}
-              disabled={isSubmitting}
-              accessibilityRole="button"
-              accessibilityLabel="Log meal"
-            >
-              <ArrowUp color="#FFFFFF" size={22} strokeWidth={3} />
-            </TouchableOpacity>
-          )}
+            )}
+            <View style={{ height: isComposerCompact ? 8 : safeInsets.bottom }} />
+          </KeyboardAvoidingView>
         </Reanimated.View>
-        {!isComposerCompact && (
-          <Reanimated.View
-            entering={FadeInDown.duration(220).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
-            exiting={FadeOutDown.duration(240).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
-          >
-            <TouchableOpacity
-              style={styles.inputBarCameraButtonLane}
-              onPress={handleOpenLogMeal}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel="Add photo"
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <View style={styles.inputBarCameraButtonProminent}>
-                <LinearGradient
-                  colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.inputBarCameraButtonGradient}
-                >
-                  <CameraIcon color="#FFFFFF" size={40} />
-                </LinearGradient>
-              </View>
-            </TouchableOpacity>
-          </Reanimated.View>
-        )}
-        <View style={{ height: isComposerCompact ? 8 : safeInsets.bottom }} />
-      </KeyboardAvoidingView>
-      ) : (
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.coachInputWrapper}
-        >
-          <View style={styles.coachInputBar}>
-            <TextInput
-              style={styles.coachInput}
-              placeholder="Ask about goals, meals, cravings..."
-              placeholderTextColor={Colors.light.secondaryText}
-              value={chatInput}
-              onChangeText={setChatInput}
-              editable={!isChatLoading}
-              multiline
-              maxLength={1000}
-            />
-            <TouchableOpacity
-              style={[
-                styles.coachSendButton,
-                (!chatInput.trim() || isChatLoading) && styles.sendButtonDisabled,
-              ]}
-              onPress={handleSendChatMessage}
-              disabled={!chatInput.trim() || isChatLoading}
-              accessibilityRole="button"
-              accessibilityLabel="Send message"
-            >
-              <ArrowUp color="#FFFFFF" size={22} strokeWidth={3} />
-            </TouchableOpacity>
-          </View>
-          <View style={{ height: safeInsets.bottom }} />
-        </KeyboardAvoidingView>
-      )}
+      </View>
     </View>
   );
 }
@@ -2523,12 +2526,17 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
-  modeTransitionViewport: {
+  modePagerViewport: {
     flex: 1,
     overflow: "hidden",
   },
-  shortcutGestureRegion: {
+  modePagerTrack: {
     flex: 1,
+    flexDirection: "row",
+  },
+  modePagerPage: {
+    flexGrow: 0,
+    flexShrink: 0,
   },
   modeSwipeOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -2537,7 +2545,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 0,
     bottom: 0,
-    width: 64,
+    width: MODE_EDGE_WIDTH,
     zIndex: 20,
   },
   modeSwipeEdgeLeft: {
@@ -2803,9 +2811,7 @@ const styles = StyleSheet.create({
     fontWeight: "600" as const,
   },
   coachInputWrapper: {
-    backgroundColor: "#FFFFFF",
-    borderTopWidth: 1,
-    borderTopColor: Colors.light.border,
+    backgroundColor: "transparent",
   },
   coachInputBar: {
     flexDirection: "row",
@@ -3299,9 +3305,20 @@ const styles = StyleSheet.create({
     fontWeight: "600" as const,
   },
   inputBarWrapper: {
+    backgroundColor: "transparent",
+  },
+  composerPagerViewport: {
+    overflow: "hidden",
     backgroundColor: "#FFFFFF",
     borderTopWidth: 1,
     borderTopColor: Colors.light.border,
+  },
+  composerPagerTrack: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+  },
+  composerPagerPage: {
+    flexShrink: 0,
   },
   inputBarCameraButton: {
     width: 42,
