@@ -105,6 +105,22 @@ const NUTRITION_PROFILE_STORAGE_KEY = "nutritionist_profile";
 const MODE_SWIPE_DISTANCE = 80;
 const MODE_SWIPE_VELOCITY = 900;
 const MODE_TRANSITION_DISTANCE_RATIO = 0.34;
+const MODE_DRAG_LIMIT_RATIO = 0.38;
+
+const rubberband = (overshoot: number, dimension: number, constant = 0.55) => (
+  (overshoot * dimension * constant) / (dimension + constant * Math.abs(overshoot))
+);
+
+const getModeDragOffset = (translationX: number, screenWidth: number) => {
+  const limit = screenWidth * MODE_DRAG_LIMIT_RATIO;
+  const distance = Math.abs(translationX);
+
+  if (distance <= limit) {
+    return translationX;
+  }
+
+  return Math.sign(translationX) * (limit + rubberband(distance - limit, screenWidth, 0.35));
+};
 
 type AppMode = "diary" | "coach";
 type ChatMessage = {
@@ -548,6 +564,7 @@ export default function TodayScreen() {
   const inputBarInputRef = useRef<TextInput>(null);
   const chatScrollRef = useRef<ScrollView>(null);
   const modeTransition = useRef(new Animated.Value(0)).current;
+  const modeDrag = useRef(new Animated.Value(0)).current;
   const [cameraFacing, setCameraFacing] = useState<"front" | "back">("back");
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 const getAnalysisMessages = useCallback((description: string, imageUri?: string) => {
@@ -970,6 +987,8 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     Keyboard.dismiss();
     const direction = nextMode === "coach" ? -1 : 1;
     setModeTransitionDirection(direction);
+    modeDrag.stopAnimation();
+    modeDrag.setValue(0);
     modeTransition.stopAnimation();
     modeTransition.setValue(1);
     setAppMode(nextMode);
@@ -979,38 +998,77 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [appMode, modeTransition]);
+  }, [appMode, modeDrag, modeTransition]);
 
-  const handleModeSwipe = useCallback((translationX: number, velocityX: number) => {
+  const handleModeSwipeUpdate = useCallback((translationX: number) => {
+    const canMoveTowardCoach = appMode === "diary" && translationX > 0;
+    const canMoveTowardDiary = appMode === "coach" && translationX < 0;
+    const edgeResistance = canMoveTowardCoach || canMoveTowardDiary ? 1 : 0.18;
+
+    modeTransition.stopAnimation();
+    modeTransition.setValue(0);
+    modeDrag.setValue(getModeDragOffset(translationX * edgeResistance, screenWidth));
+  }, [appMode, modeDrag, modeTransition, screenWidth]);
+
+  const settleModeDrag = useCallback((toValue: number, velocityX: number, onComplete?: () => void) => {
+    modeDrag.stopAnimation();
+    Animated.spring(modeDrag, {
+      toValue,
+      velocity: velocityX,
+      stiffness: 260,
+      damping: 30,
+      mass: 1,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) {
+        onComplete?.();
+      }
+    });
+  }, [modeDrag]);
+
+  const handleModeSwipeEnd = useCallback((translationX: number, velocityX: number) => {
     const isIntentionalSwipe =
       Math.abs(translationX) >= MODE_SWIPE_DISTANCE ||
       Math.abs(velocityX) >= MODE_SWIPE_VELOCITY;
 
     if (!isIntentionalSwipe) {
+      settleModeDrag(0, velocityX);
       return;
     }
 
     if (translationX > 0 && appMode === "diary") {
-      switchAppMode("coach");
+      settleModeDrag(screenWidth * 0.18, velocityX, () => {
+        modeDrag.setValue(0);
+        switchAppMode("coach");
+      });
     } else if (translationX < 0 && appMode === "coach") {
-      switchAppMode("diary");
+      settleModeDrag(screenWidth * -0.18, velocityX, () => {
+        modeDrag.setValue(0);
+        switchAppMode("diary");
+      });
+    } else {
+      settleModeDrag(0, velocityX);
     }
-  }, [appMode, switchAppMode]);
+  }, [appMode, modeDrag, screenWidth, settleModeDrag, switchAppMode]);
 
-  const modePageAnimatedStyle = useMemo(() => ({
-    opacity: modeTransition.interpolate({
+  const modePageAnimatedStyle = useMemo(() => {
+    const transitionTranslateX = modeTransition.interpolate({
       inputRange: [0, 1],
-      outputRange: [1, 0.92],
-    }),
-    transform: [
-      {
-        translateX: modeTransition.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, modeTransitionDirection * screenWidth * MODE_TRANSITION_DISTANCE_RATIO],
-        }),
-      },
-    ],
-  }), [modeTransition, modeTransitionDirection, screenWidth]);
+      outputRange: [0, modeTransitionDirection * screenWidth * MODE_TRANSITION_DISTANCE_RATIO],
+    });
+
+    return {
+      opacity: modeTransition.interpolate({
+        inputRange: [0, 1],
+        outputRange: [1, 0.92],
+      }),
+      transform: [
+        {
+          translateX: Animated.add(modeDrag, transitionTranslateX),
+        },
+      ],
+    };
+  }, [modeDrag, modeTransition, modeTransitionDirection, screenWidth]);
 
   const screenShortcutGesture = useMemo(() => {
     const doubleTapGesture = Gesture.Tap()
@@ -1027,12 +1085,15 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
       .activeOffsetX([-32, 32])
       .failOffsetY([-24, 24])
       .runOnJS(true)
+      .onUpdate((event) => {
+        handleModeSwipeUpdate(event.translationX);
+      })
       .onEnd((event) => {
-        handleModeSwipe(event.translationX, event.velocityX);
+        handleModeSwipeEnd(event.translationX, event.velocityX);
       });
 
     return Gesture.Simultaneous(doubleTapGesture, modeSwipeGesture);
-  }, [handleModeSwipe, handleShortcutDoubleTap]);
+  }, [handleModeSwipeEnd, handleModeSwipeUpdate, handleShortcutDoubleTap]);
 
   const resetEditState = () => {
     setEditModalVisible(false);
