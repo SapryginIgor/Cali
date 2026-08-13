@@ -115,8 +115,9 @@ const INITIAL_WEEK_INDEX = WEEKS_BEFORE;
 const CHAT_STORAGE_KEY = "nutritionist_chat_messages";
 const GOALS_STORAGE_KEY = "nutritionist_goals";
 const NUTRITION_PROFILE_STORAGE_KEY = "nutritionist_profile";
-const MODE_SWIPE_DISTANCE = 80;
-const MODE_SWIPE_VELOCITY = 900;
+const MODE_SWIPE_DISTANCE = 52;
+const MODE_SWIPE_VELOCITY = 650;
+const MODE_EDGE_WIDTH = 128;
 const MODE_TRANSITION_DISTANCE_RATIO = 0.34;
 const MODE_DRAG_LIMIT_RATIO = 0.38;
 
@@ -1091,7 +1092,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     () =>
       Gesture.Pan()
         .minDistance(10)
-        .activeOffsetX([-18, 18])
+        .activeOffsetX([-14, 14])
         .failOffsetY([-72, 72])
         .onBegin(() => {
           cancelAnimation(modeDrag);
@@ -2537,7 +2538,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 0,
     bottom: 0,
-    width: 64,
+    width: MODE_EDGE_WIDTH,
     zIndex: 20,
   },
   modeSwipeEdgeLeft: {
