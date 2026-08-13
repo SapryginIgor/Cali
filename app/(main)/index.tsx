@@ -45,6 +45,11 @@ import {
 } from "react-native";
 import Reanimated, {
   Easing as ReanimatedEasing,
+  FadeInDown,
+  FadeInLeft,
+  FadeOutDown,
+  FadeOutLeft,
+  LinearTransition,
   cancelAnimation,
   interpolate,
   runOnJS,
@@ -327,7 +332,7 @@ if (Platform.OS === "android") {
 
 const runSoftLayoutTransition = () => {
   LayoutAnimation.configureNext({
-    duration: 180,
+    duration: 260,
     create: {
       type: LayoutAnimation.Types.easeInEaseOut,
       property: LayoutAnimation.Properties.opacity,
@@ -577,6 +582,7 @@ export default function TodayScreen() {
   const modeTransition = useSharedValue(0);
   const modeTransitionDirection = useSharedValue(0);
   const modeDrag = useSharedValue(0);
+  const appModeValue = useSharedValue(0);
   const [cameraFacing, setCameraFacing] = useState<"front" | "back">("back");
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 const getAnalysisMessages = useCallback((description: string, imageUri?: string) => {
@@ -950,6 +956,10 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     });
   }, [nutritionProfile, hasLoadedNutritionProfile]);
 
+  useEffect(() => {
+    appModeValue.set(appMode === "coach" ? 1 : 0);
+  }, [appMode, appModeValue]);
+
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString("en-US", {
@@ -1002,28 +1012,30 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
 
     Keyboard.dismiss();
     const direction = nextMode === "coach" ? -1 : 1;
+    setAppMode(nextMode);
+    appModeValue.set(nextMode === "coach" ? 1 : 0);
     cancelAnimation(modeDrag);
     cancelAnimation(modeTransition);
     modeTransitionDirection.set(direction);
     modeDrag.set(0);
     modeTransition.set(1);
-    setAppMode(nextMode);
     modeTransition.set(withTiming(0, {
       duration: 290,
       easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
     }));
-  }, [appMode, modeDrag, modeTransition, modeTransitionDirection]);
+  }, [appMode, appModeValue, modeDrag, modeTransition, modeTransitionDirection]);
 
   const finishGestureModeSwitch = useCallback((nextMode: AppMode, direction: number) => {
     modeTransitionDirection.set(direction);
     modeDrag.set(0);
     modeTransition.set(1);
     setAppMode(nextMode);
+    appModeValue.set(nextMode === "coach" ? 1 : 0);
     modeTransition.set(withTiming(0, {
       duration: 290,
       easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
     }));
-  }, [modeDrag, modeTransition, modeTransitionDirection]);
+  }, [appModeValue, modeDrag, modeTransition, modeTransitionDirection]);
 
   const settleModeDrag = useCallback((toValue: number, velocityX: number) => {
     "worklet";
@@ -1082,8 +1094,9 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         runOnJS(dismissKeyboard)();
       })
       .onUpdate((event) => {
-        const canMoveTowardCoach = appMode === "diary" && event.translationX > 0;
-        const canMoveTowardDiary = appMode === "coach" && event.translationX < 0;
+        const currentMode = appModeValue.get();
+        const canMoveTowardCoach = currentMode === 0 && event.translationX > 0;
+        const canMoveTowardDiary = currentMode === 1 && event.translationX < 0;
         const edgeResistance = canMoveTowardCoach || canMoveTowardDiary ? 1 : 0.18;
 
         modeDrag.set(getModeDragOffset(event.translationX * edgeResistance, screenWidth));
@@ -1098,7 +1111,9 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
           return;
         }
 
-        if (event.translationX > 0 && appMode === "diary") {
+        const currentMode = appModeValue.get();
+        if (event.translationX > 0 && currentMode === 0) {
+          appModeValue.set(1);
           modeDrag.set(withSpring(screenWidth * 0.18, {
             velocity: event.velocityX,
             stiffness: 280,
@@ -1109,7 +1124,8 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
               runOnJS(finishGestureModeSwitch)("coach", -1);
             }
           }));
-        } else if (event.translationX < 0 && appMode === "coach") {
+        } else if (event.translationX < 0 && currentMode === 1) {
+          appModeValue.set(0);
           modeDrag.set(withSpring(screenWidth * -0.18, {
             velocity: event.velocityX,
             stiffness: 280,
@@ -1127,7 +1143,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
 
     return Gesture.Simultaneous(doubleTapGesture, modeSwipeGesture);
   }, [
-    appMode,
+    appModeValue,
     dismissKeyboard,
     finishGestureModeSwitch,
     handleShortcutDoubleTap,
@@ -2271,7 +2287,10 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.inputBarWrapper}
       >
-        <View style={[styles.inputBar, isComposerCompact && styles.inputBarCompact]}>
+        <Reanimated.View
+          layout={LinearTransition.duration(260).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
+          style={[styles.inputBar, isComposerCompact && styles.inputBarCompact]}
+        >
           {selectedImage && (
             <View style={styles.inputBarThumb}>
               <Image source={{ uri: selectedImage }} style={styles.inputBarThumbImage} contentFit="cover" />
@@ -2286,22 +2305,27 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             </View>
           )}
           {isComposerCompact && (
-            <TouchableOpacity
-              style={styles.inputBarCameraButton}
-              onPress={handleOpenLogMeal}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel="Add photo"
+            <Reanimated.View
+              entering={FadeInLeft.duration(180).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
+              exiting={FadeOutLeft.duration(140).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
             >
-              <LinearGradient
-                colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.inputBarCameraButtonGradient}
+              <TouchableOpacity
+                style={styles.inputBarCameraButton}
+                onPress={handleOpenLogMeal}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Add photo"
               >
-                <CameraIcon color="#FFFFFF" size={16} />
-              </LinearGradient>
-            </TouchableOpacity>
+                <LinearGradient
+                  colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.inputBarCameraButtonGradient}
+                >
+                  <CameraIcon color="#FFFFFF" size={16} />
+                </LinearGradient>
+              </TouchableOpacity>
+            </Reanimated.View>
           )}
           <TextInput
             ref={inputBarInputRef}
@@ -2327,27 +2351,32 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
               <ArrowUp color="#FFFFFF" size={22} strokeWidth={3} />
             </TouchableOpacity>
           )}
-        </View>
+        </Reanimated.View>
         {!isComposerCompact && (
-          <TouchableOpacity
-            style={styles.inputBarCameraButtonLane}
-            onPress={handleOpenLogMeal}
-            activeOpacity={0.85}
-            accessibilityRole="button"
-            accessibilityLabel="Add photo"
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          <Reanimated.View
+            entering={FadeInDown.duration(220).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
+            exiting={FadeOutDown.duration(240).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
           >
-            <View style={styles.inputBarCameraButtonProminent}>
-              <LinearGradient
-                colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.inputBarCameraButtonGradient}
-              >
-                <CameraIcon color="#FFFFFF" size={40} />
-              </LinearGradient>
-            </View>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.inputBarCameraButtonLane}
+              onPress={handleOpenLogMeal}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Add photo"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <View style={styles.inputBarCameraButtonProminent}>
+                <LinearGradient
+                  colors={[Colors.light.gradientStart, Colors.light.gradientEnd]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.inputBarCameraButtonGradient}
+                >
+                  <CameraIcon color="#FFFFFF" size={40} />
+                </LinearGradient>
+              </View>
+            </TouchableOpacity>
+          </Reanimated.View>
         )}
         <View style={{ height: isComposerCompact ? 8 : safeInsets.bottom }} />
       </KeyboardAvoidingView>
