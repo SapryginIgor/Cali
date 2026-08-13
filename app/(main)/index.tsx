@@ -104,6 +104,7 @@ const GOALS_STORAGE_KEY = "nutritionist_goals";
 const NUTRITION_PROFILE_STORAGE_KEY = "nutritionist_profile";
 const MODE_SWIPE_DISTANCE = 80;
 const MODE_SWIPE_VELOCITY = 900;
+const MODE_TRANSITION_DISTANCE_RATIO = 0.34;
 
 type AppMode = "diary" | "coach";
 type ChatMessage = {
@@ -974,11 +975,11 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     setAppMode(nextMode);
     Animated.timing(modeTransition, {
       toValue: 0,
-      duration: 230,
+      duration: 290,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [appMode, modeTransition, modeTransitionDirection]);
+  }, [appMode, modeTransition]);
 
   const handleModeSwipe = useCallback((translationX: number, velocityX: number) => {
     const isIntentionalSwipe =
@@ -989,9 +990,9 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
       return;
     }
 
-    if (translationX < 0 && appMode === "diary") {
+    if (translationX > 0 && appMode === "diary") {
       switchAppMode("coach");
-    } else if (translationX > 0 && appMode === "coach") {
+    } else if (translationX < 0 && appMode === "coach") {
       switchAppMode("diary");
     }
   }, [appMode, switchAppMode]);
@@ -1005,7 +1006,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
       {
         translateX: modeTransition.interpolate({
           inputRange: [0, 1],
-          outputRange: [0, modeTransitionDirection * Math.min(screenWidth * 0.16, 64)],
+          outputRange: [0, modeTransitionDirection * screenWidth * MODE_TRANSITION_DISTANCE_RATIO],
         }),
       },
     ],
@@ -1384,7 +1385,8 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         )}
 
         <GestureDetector gesture={screenShortcutGesture}>
-          <Animated.View style={[styles.shortcutGestureRegion, modePageAnimatedStyle]}>
+          <View style={styles.modeTransitionViewport}>
+            <Animated.View style={[styles.shortcutGestureRegion, modePageAnimatedStyle]}>
         {appMode === "diary" ? (
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.macrosCard}>
@@ -1824,7 +1826,8 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             </ScrollView>
           </View>
         )}
-          </Animated.View>
+            </Animated.View>
+          </View>
         </GestureDetector>
       </SafeAreaView>
 
@@ -2371,6 +2374,10 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  modeTransitionViewport: {
+    flex: 1,
+    overflow: "hidden",
   },
   shortcutGestureRegion: {
     flex: 1,
