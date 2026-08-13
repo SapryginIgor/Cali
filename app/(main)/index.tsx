@@ -1073,85 +1073,89 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     };
   }, [screenWidth]);
 
-  const screenShortcutGesture = useMemo(() => {
-    const doubleTapGesture = Gesture.Tap()
-      .numberOfTaps(2)
-      .maxDelay(260)
-      .runOnJS(true)
-      .onEnd((event, success) => {
-        if (success) {
-          handleShortcutDoubleTap(event.x);
-        }
-      });
+  const screenDoubleTapGesture = useMemo(
+    () =>
+      Gesture.Tap()
+        .numberOfTaps(2)
+        .maxDelay(260)
+        .runOnJS(true)
+        .onEnd((event, success) => {
+          if (success) {
+            handleShortcutDoubleTap(event.x);
+          }
+        }),
+    [handleShortcutDoubleTap]
+  );
 
-    const modeSwipeGesture = Gesture.Pan()
-      .activeOffsetX([-32, 32])
-      .failOffsetY([-24, 24])
-      .onBegin(() => {
-        cancelAnimation(modeDrag);
-        cancelAnimation(modeTransition);
-        modeTransition.set(0);
-        runOnJS(dismissKeyboard)();
-      })
-      .onUpdate((event) => {
-        const currentMode = appModeValue.get();
-        const canMoveTowardCoach = currentMode === 0 && event.translationX > 0;
-        const canMoveTowardDiary = currentMode === 1 && event.translationX < 0;
-        const edgeResistance = canMoveTowardCoach || canMoveTowardDiary ? 1 : 0.18;
+  const modeSwipeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(10)
+        .activeOffsetX([-18, 18])
+        .failOffsetY([-72, 72])
+        .onBegin(() => {
+          cancelAnimation(modeDrag);
+          cancelAnimation(modeTransition);
+          modeTransition.set(0);
+          runOnJS(dismissKeyboard)();
+        })
+        .onUpdate((event) => {
+          const currentMode = appModeValue.get();
+          const canMoveTowardCoach = currentMode === 0 && event.translationX > 0;
+          const canMoveTowardDiary = currentMode === 1 && event.translationX < 0;
+          const edgeResistance = canMoveTowardCoach || canMoveTowardDiary ? 1 : 0.18;
 
-        modeDrag.set(getModeDragOffset(event.translationX * edgeResistance, screenWidth));
-      })
-      .onEnd((event) => {
-        const isIntentionalSwipe =
-          Math.abs(event.translationX) >= MODE_SWIPE_DISTANCE ||
-          Math.abs(event.velocityX) >= MODE_SWIPE_VELOCITY;
+          modeDrag.set(getModeDragOffset(event.translationX * edgeResistance, screenWidth));
+        })
+        .onEnd((event) => {
+          const isIntentionalSwipe =
+            Math.abs(event.translationX) >= MODE_SWIPE_DISTANCE ||
+            Math.abs(event.velocityX) >= MODE_SWIPE_VELOCITY;
 
-        if (!isIntentionalSwipe) {
-          settleModeDrag(0, event.velocityX);
-          return;
-        }
+          if (!isIntentionalSwipe) {
+            settleModeDrag(0, event.velocityX);
+            return;
+          }
 
-        const currentMode = appModeValue.get();
-        if (event.translationX > 0 && currentMode === 0) {
-          appModeValue.set(1);
-          modeDrag.set(withSpring(screenWidth * 0.18, {
-            velocity: event.velocityX,
-            stiffness: 280,
-            damping: 34,
-            mass: 1,
-          }, (finished) => {
-            if (finished) {
-              runOnJS(finishGestureModeSwitch)("coach", -1);
-            }
-          }));
-        } else if (event.translationX < 0 && currentMode === 1) {
-          appModeValue.set(0);
-          modeDrag.set(withSpring(screenWidth * -0.18, {
-            velocity: event.velocityX,
-            stiffness: 280,
-            damping: 34,
-            mass: 1,
-          }, (finished) => {
-            if (finished) {
-              runOnJS(finishGestureModeSwitch)("diary", 1);
-            }
-          }));
-        } else {
-          settleModeDrag(0, event.velocityX);
-        }
-      });
-
-    return Gesture.Simultaneous(doubleTapGesture, modeSwipeGesture);
-  }, [
-    appModeValue,
-    dismissKeyboard,
-    finishGestureModeSwitch,
-    handleShortcutDoubleTap,
-    modeDrag,
-    modeTransition,
-    screenWidth,
-    settleModeDrag,
-  ]);
+          const currentMode = appModeValue.get();
+          if (event.translationX > 0 && currentMode === 0) {
+            appModeValue.set(1);
+            modeDrag.set(withSpring(screenWidth * 0.18, {
+              velocity: event.velocityX,
+              stiffness: 280,
+              damping: 34,
+              mass: 1,
+            }, (finished) => {
+              if (finished) {
+                runOnJS(finishGestureModeSwitch)("coach", -1);
+              }
+            }));
+          } else if (event.translationX < 0 && currentMode === 1) {
+            appModeValue.set(0);
+            modeDrag.set(withSpring(screenWidth * -0.18, {
+              velocity: event.velocityX,
+              stiffness: 280,
+              damping: 34,
+              mass: 1,
+            }, (finished) => {
+              if (finished) {
+                runOnJS(finishGestureModeSwitch)("diary", 1);
+              }
+            }));
+          } else {
+            settleModeDrag(0, event.velocityX);
+          }
+        }),
+    [
+      appModeValue,
+      dismissKeyboard,
+      finishGestureModeSwitch,
+      modeDrag,
+      modeTransition,
+      screenWidth,
+      settleModeDrag,
+    ]
+  );
 
   const resetEditState = () => {
     setEditModalVisible(false);
@@ -1503,7 +1507,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
           </View>
         )}
 
-        <GestureDetector gesture={screenShortcutGesture}>
+        <GestureDetector gesture={screenDoubleTapGesture}>
           <View style={styles.modeTransitionViewport}>
             <Reanimated.View style={[styles.shortcutGestureRegion, modePageAnimatedStyle]}>
         {appMode === "diary" ? (
@@ -1946,6 +1950,18 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
           </View>
         )}
             </Reanimated.View>
+            <View pointerEvents="box-none" style={styles.modeSwipeOverlay}>
+              {appMode === "diary" && (
+                <GestureDetector gesture={modeSwipeGesture}>
+                  <View style={[styles.modeSwipeEdge, styles.modeSwipeEdgeLeft]} />
+                </GestureDetector>
+              )}
+              {appMode === "coach" && (
+                <GestureDetector gesture={modeSwipeGesture}>
+                  <View style={[styles.modeSwipeEdge, styles.modeSwipeEdgeRight]} />
+                </GestureDetector>
+              )}
+            </View>
           </View>
         </GestureDetector>
       </SafeAreaView>
@@ -2513,6 +2529,22 @@ const styles = StyleSheet.create({
   },
   shortcutGestureRegion: {
     flex: 1,
+  },
+  modeSwipeOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  modeSwipeEdge: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 64,
+    zIndex: 20,
+  },
+  modeSwipeEdgeLeft: {
+    left: 0,
+  },
+  modeSwipeEdgeRight: {
+    right: 0,
   },
   coachContainer: {
     flex: 1,
