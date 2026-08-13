@@ -989,9 +989,9 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
       return;
     }
 
-    if (translationX > 0 && appMode === "diary") {
+    if (translationX < 0 && appMode === "diary") {
       switchAppMode("coach");
-    } else if (translationX < 0 && appMode === "coach") {
+    } else if (translationX > 0 && appMode === "coach") {
       switchAppMode("diary");
     }
   }, [appMode, switchAppMode]);
