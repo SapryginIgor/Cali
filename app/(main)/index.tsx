@@ -42,6 +42,8 @@ import {
   TouchableWithoutFeedback,
   UIManager,
   useWindowDimensions,
+  Animated,
+  Easing,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -509,6 +511,7 @@ export default function TodayScreen() {
   const [editKeyboardHeight, setEditKeyboardHeight] = useState(0);
   const [selectedDate, setSelectedDate] = useState(todayDate);
   const [appMode, setAppMode] = useState<AppMode>("diary");
+  const [modeTransitionDirection, setModeTransitionDirection] = useState(0);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT_MESSAGES);
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -543,6 +546,7 @@ export default function TodayScreen() {
   const cameraRef = useRef<CameraView>(null);
   const inputBarInputRef = useRef<TextInput>(null);
   const chatScrollRef = useRef<ScrollView>(null);
+  const modeTransition = useRef(new Animated.Value(0)).current;
   const [cameraFacing, setCameraFacing] = useState<"front" | "back">("back");
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 const getAnalysisMessages = useCallback((description: string, imageUri?: string) => {
@@ -957,6 +961,25 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
     handleShortcutDayShift(tapX < screenWidth / 2 ? -1 : 1);
   }, [handleShortcutDayShift, screenWidth]);
 
+  const switchAppMode = useCallback((nextMode: AppMode) => {
+    if (nextMode === appMode) {
+      return;
+    }
+
+    Keyboard.dismiss();
+    const direction = nextMode === "coach" ? -1 : 1;
+    setModeTransitionDirection(direction);
+    modeTransition.stopAnimation();
+    modeTransition.setValue(1);
+    setAppMode(nextMode);
+    Animated.timing(modeTransition, {
+      toValue: 0,
+      duration: 230,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [appMode, modeTransition]);
+
   const handleModeSwipe = useCallback((translationX: number, velocityX: number) => {
     const isIntentionalSwipe =
       Math.abs(translationX) >= MODE_SWIPE_DISTANCE ||
@@ -966,16 +989,27 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
       return;
     }
 
-    if (translationX < 0 && appMode !== "coach") {
-      Keyboard.dismiss();
-      runSoftLayoutTransition();
-      setAppMode("coach");
-    } else if (translationX > 0 && appMode !== "diary") {
-      Keyboard.dismiss();
-      runSoftLayoutTransition();
-      setAppMode("diary");
+    if (translationX > 0 && appMode === "diary") {
+      switchAppMode("coach");
+    } else if (translationX < 0 && appMode === "coach") {
+      switchAppMode("diary");
     }
-  }, [appMode]);
+  }, [appMode, switchAppMode]);
+
+  const modePageAnimatedStyle = useMemo(() => ({
+    opacity: modeTransition.interpolate({
+      inputRange: [0, 1],
+      outputRange: [1, 0.92],
+    }),
+    transform: [
+      {
+        translateX: modeTransition.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, modeTransitionDirection * Math.min(screenWidth * 0.16, 64)],
+        }),
+      },
+    ],
+  }), [modeTransition, modeTransitionDirection, screenWidth]);
 
   const screenShortcutGesture = useMemo(() => {
     const doubleTapGesture = Gesture.Tap()
@@ -1297,7 +1331,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
           <View style={styles.modeSwitch}>
             <TouchableOpacity
               style={[styles.modeSwitchButton, appMode === "diary" && styles.modeSwitchButtonActive]}
-              onPress={() => setAppMode("diary")}
+              onPress={() => switchAppMode("diary")}
               accessibilityRole="button"
               accessibilityLabel="Open meal diary"
               activeOpacity={0.85}
@@ -1312,7 +1346,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.modeSwitchButton, appMode === "coach" && styles.modeSwitchButtonActive]}
-              onPress={() => setAppMode("coach")}
+              onPress={() => switchAppMode("coach")}
               accessibilityRole="button"
               accessibilityLabel="Open nutrition coach chat"
               activeOpacity={0.85}
@@ -1350,7 +1384,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
         )}
 
         <GestureDetector gesture={screenShortcutGesture}>
-          <View style={styles.shortcutGestureRegion}>
+          <Animated.View style={[styles.shortcutGestureRegion, modePageAnimatedStyle]}>
         {appMode === "diary" ? (
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.macrosCard}>
@@ -1790,7 +1824,7 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             </ScrollView>
           </View>
         )}
-          </View>
+          </Animated.View>
         </GestureDetector>
       </SafeAreaView>
 
