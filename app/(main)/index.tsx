@@ -46,8 +46,10 @@ import {
 } from "react-native";
 import Reanimated, {
   Easing as ReanimatedEasing,
+  FadeIn,
   FadeInDown,
   FadeInLeft,
+  FadeOut,
   FadeOutDown,
   FadeOutLeft,
   LinearTransition,
@@ -335,14 +337,14 @@ const runSoftLayoutTransition = () => {
   LayoutAnimation.configureNext({
     duration: 260,
     create: {
-      type: LayoutAnimation.Types.easeInEaseOut,
+      type: LayoutAnimation.Types.easeOut,
       property: LayoutAnimation.Properties.opacity,
     },
     update: {
       type: LayoutAnimation.Types.easeInEaseOut,
     },
     delete: {
-      type: LayoutAnimation.Types.easeInEaseOut,
+      type: LayoutAnimation.Types.easeOut,
       property: LayoutAnimation.Properties.opacity,
     },
   });
@@ -2240,19 +2242,24 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
           style={[styles.inputBar, isComposerCompact && styles.inputBarCompact]}
         >
           {selectedImage && (
-            <View style={styles.inputBarThumb}>
-              <Image source={{ uri: selectedImage }} style={styles.inputBarThumbImage} contentFit="cover" />
-              <TouchableOpacity
-                style={styles.inputBarThumbRemove}
-                onPress={() => setSelectedImage(null)}
-                accessibilityRole="button"
-                accessibilityLabel="Remove photo"
-              >
-                <X color="#FFFFFF" size={10} />
-              </TouchableOpacity>
-            </View>
+            <Reanimated.View
+              entering={FadeIn.duration(160).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
+              exiting={FadeOut.duration(140).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
+            >
+              <View style={styles.inputBarThumb}>
+                <Image source={{ uri: selectedImage }} style={styles.inputBarThumbImage} contentFit="cover" />
+                <TouchableOpacity
+                  style={styles.inputBarThumbRemove}
+                  onPress={() => setSelectedImage(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove photo"
+                >
+                  <X color="#FFFFFF" size={10} />
+                </TouchableOpacity>
+              </View>
+            </Reanimated.View>
           )}
-          {isComposerCompact && (
+          {isComposerCompact && !selectedImage && (
             <Reanimated.View
               entering={FadeInLeft.duration(180).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
               exiting={FadeOutLeft.duration(140).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
@@ -2289,15 +2296,20 @@ const getAnalysisMessages = useCallback((description: string, imageUri?: string)
             editable={!isSubmitting}
           />
           {(hasInputContent || selectedImage !== null) && (
-            <TouchableOpacity
-              style={[styles.inputBarSend, isSubmitting && styles.sendButtonDisabled]}
-              onPress={handleSubmit}
-              disabled={isSubmitting}
-              accessibilityRole="button"
-              accessibilityLabel="Log meal"
+            <Reanimated.View
+              entering={FadeIn.duration(160).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
+              exiting={FadeOut.duration(140).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
             >
-              <ArrowUp color="#FFFFFF" size={22} strokeWidth={3} />
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.inputBarSend, isSubmitting && styles.sendButtonDisabled]}
+                onPress={handleSubmit}
+                disabled={isSubmitting}
+                accessibilityRole="button"
+                accessibilityLabel="Log meal"
+              >
+                <ArrowUp color="#FFFFFF" size={22} strokeWidth={3} />
+              </TouchableOpacity>
+            </Reanimated.View>
           )}
         </Reanimated.View>
         {!isComposerCompact && (
